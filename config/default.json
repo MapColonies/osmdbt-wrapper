@@ -1,0 +1,11 @@
+{
+  "application": {
+    "changesDir": "/tmp",
+    "diffMaxChanges": 50000
+  },
+  "objectStorage": {
+    "endpoint": "http://localhost:9000/",
+    "bucketName": "bucketName",
+    "acl": "public-read"
+  }
+}

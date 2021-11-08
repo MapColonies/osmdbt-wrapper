@@ -1,0 +1,26 @@
+{
+  "name": "osmdbt-wrapper",
+  "version": "1.0.0",
+  "description": "a wrapper for osmdbt",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "start": "node ./index.mjs"
+  },
+  "author": "MapColonies",
+  "license": "ISC",
+  "dependencies": {
+    "@map-colonies/js-logger": "0.0.3",
+    "@aws-sdk/client-s3": "^3.39.0",
+    "config": "^3.3.6",
+    "zx": "^4.2.0"
+  },
+  "devDependencies": {
+    "@map-colonies/prettier-config": "0.0.1",
+    "@map-colonies/standard-version-update-helm-version": "^2.0.1",
+    "prettier": "^2.2.1",
+    "standard-version": "^9.3.1"
+  }
+}

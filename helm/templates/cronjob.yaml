@@ -1,0 +1,61 @@
+{{- $releaseName := .Release.Name -}}
+{{- $chartName := include "osmdbt-wrapper.name" . -}}
+{{- $cloudProviderFlavor := include "osmdbt-wrapper.cloudProviderFlavor" . -}}
+{{- $cloudProviderDockerRegistryUrl := include "osmdbt-wrapper.cloudProviderDockerRegistryUrl" . -}}
+{{- $tag := include "osmdbt-wrapper.tag" . -}}
+{{- if .Values.enabled -}}
+apiVersion: {{ .Values.cronjob.apiVersion | quote }}
+kind: CronJob
+metadata:
+  name: {{ $releaseName }}-{{ $chartName }}
+  labels:
+    app: {{ $chartName }}
+    component: {{ $chartName }}
+    environment: {{ include "osmdbt-wrapper.environment" . }}
+    release: {{ $releaseName }}
+    {{- include "osmdbt-wrapper.labels" . | nindent 4 }}
+spec:
+  failedJobsHistoryLimit: 2
+  successfulJobsHistoryLimit: 2
+  schedule: {{ .Values.cronjob.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: {{ $releaseName }}-{{ $chartName }}-cronjob
+            {{- with .Values.image }}
+            {{- if ne $cloudProviderFlavor "minikube" }}
+            image: {{ $cloudProviderDockerRegistryUrl }}/{{ .repository }}:{{ $tag }}
+            {{- else }}
+            image: {{ .repository }}:{{ $tag }}
+            {{- end }}
+            {{- end }}
+            imagePullPolicy: {{ .pullPolicy }}
+            envFrom:
+            - configMapRef:
+                name: {{ $releaseName }}-{{ $chartName }}-configmap
+            - secretRef:
+                name: {{ $releaseName }}-{{ $chartName }}-secret
+            {{- if .Values.resources.enabled }}
+            resources:
+              {{- toYaml .Values.resources.value | nindent 12 }}
+            {{- end }}
+            volumeMounts:
+              - name: osmdbt-config
+                mountPath: /osmdbt/config
+            {{- if .Values.dbConfig.sslAuth.enabled }}
+              - name: cert-conf
+                mountPath: {{ .Values.dbConfig.sslAuth.mountPath }}
+            {{- end }}
+          volumes:
+            - name: osmdbt-config
+              configMap:
+                name: {{ $releaseName }}-{{ $chartName }}-osmdbt-configmap
+            {{- if .Values.dbConfig.sslAuth.enabled }}
+            - name: cert-conf
+              secret:
+                secretName: {{ .Values.dbConfig.sslAuth.secretName }}
+            {{- end }}
+          restartPolicy: OnFailure
+{{- end -}}

@@ -1,0 +1,14 @@
+{
+  "application": {
+    "changesDir": "APP_CHANGES_DIR",
+    "diffMaxChanges": {
+      "__name": "APP_DIFF_MAX_CHANGES",
+      "__format": "number"
+    }
+  },
+  "objectStorage": {
+    "endpoint": "OBJECT_STORAGE_ENDPOINT",
+    "bucketName": "OBJECT_STORAGE_BUCKET_NAME",
+    "acl": "OBJECT_STORAGE_ACL"
+  }
+}

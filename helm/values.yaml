@@ -1,0 +1,60 @@
+global:
+  cloudProvider: {}
+  tracing: {}
+  metrics: {}
+  environment: {}
+
+enabled: true
+environment: development
+
+cloudProvider:
+  flavor: openshift
+  dockerRegistryUrl: my-registry.io
+
+image:
+  repository: osmdbt-wrapper
+  # Overrides the image tag whose default is the chart appVersion.
+  # tag: 'v1.0.0'
+  pullPolicy: Always
+
+cronjob:
+  schedule: '* */1 * * *'
+  apiVersion: 'batch/v1beta1' # depends on openshift version batch/v1 or batch/v1beta1
+
+resources:
+  enabled: false
+  value:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+dbConfig:
+  host: postgresHost
+  username: postgres
+  password: 1234
+  database: openstreetmap
+  sslAuth:
+    enabled: false
+    secretName: secret-name
+    mountPath: '/tmp/certs-postgres'
+    certFileName: name.crt
+    keyFileName: name.key
+    caFileName: name.crt
+
+objectStrorageConfig:
+  endpoint: http://localhost:9000/
+  bucketName: bucketName
+  accessKey: accessKey
+  secretKey: secretKey
+  acl: public-read
+
+application:
+  replicationSlotName: replication_slot_name
+  diffMaxChanges: 50000
+  # logDir: /tmp
+  # changesDir: /tmp
+  # tmpDir: /tmp
+  # runDir: /tmp
