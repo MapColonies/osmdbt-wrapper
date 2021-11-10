@@ -1,7 +1,6 @@
 #!/usr/bin/env zx
 
-import 'zx/globals';
-import { path, fs } from 'zx';
+import { $, path, fs } from 'zx';
 import config from 'config';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import jsLogger from '@map-colonies/js-logger';
@@ -16,11 +15,12 @@ const OSMDBT_CREATE_DIFF = 'osmdbt-create-diff';
 
 const OSMDBT_BASE_PATH = '/osmdbt';
 const OSMDBT_CONFIG_PATH = path.join(OSMDBT_BASE_PATH, 'config', 'osmdbt-config.yaml');
-const OSMDBT_COMMANDS_PATH = path.join(OSMDBT_BASE_PATH, 'build', 'src');
+const OSMDBT_BIN_PATH = path.join(OSMDBT_BASE_PATH, 'build', 'src');
 const DIFF_TOP_DIR_DIVIDER = 1000000;
 const DIFF_BOTTOM_DIR_DIVIDER = 1000;
 const DIFF_STATE_FILE_MODULO = 1000;
 const STATE_FILE = 'state.txt';
+const OSMDBT_DONE_LOG_PREFIX = '.done';
 const DIFF_FILE_EXTENTION = 'osc.gz';
 const S3_REGION = 'us-east-1';
 const ExitCodes = { SUCCESS: 0, OSMDBT_ERROR: 100, STATE_FETCH_FAILURE_ERROR: 101, INVALID_STATE_FILE: 102, PUT_OBJECT_ERROR: 103, TERMINATED: 130 };
@@ -33,10 +33,22 @@ class ErrorWithExitCode extends Error {
 }
 
 const objectStorageConfig = config.get('objectStorage');
-const appConfig = config.get('application');
-const OSMDBT_STATE_PATH = path.join(appConfig.changesDir, STATE_FILE);
+const osmdbtConfig = config.get('osmdbt');
+const OSMDBT_STATE_PATH = path.join(osmdbtConfig.changesDir, STATE_FILE);
+const OSMDBT_STATE_BACKUP_PATH = path.join(osmdbtConfig.changesDir, 'backup', STATE_FILE);
+const GLOBAL_OSMDBT_ARGS = osmdbtConfig.verbose ? ['-c', OSMDBT_CONFIG_PATH] : ['-c', OSMDBT_CONFIG_PATH, '-q'];
 const logger = jsLogger.default();
 let s3Client;
+
+const createDirectory = async (dir) => {
+  await $`mkdir -p ${dir}`;
+};
+
+const prepareEnvironment = async () => {
+  const { logDir, changesDir, runDir } = osmdbtConfig;
+  const backupDir = path.join(changesDir, 'backup');
+  [logDir, changesDir, runDir, backupDir].forEach(async (dir) => await createDirectory(dir));
+};
 
 const streamToString = (stream) => {
   return new Promise((resolve, reject) => {
@@ -76,12 +88,13 @@ const initializeS3Client = () => {
   });
 };
 
-const getStateFile = async () => {
-  const { bucketName } = objectStorageConfig;
+const getStateFileFromS3ToFs = async () => {
+  const bucketName = objectStorageConfig.bucketName;
   try {
     const stateFileStream = await s3Client.send(new GetObjectCommand({ Bucket: bucketName, Key: STATE_FILE }));
     const stateFileContent = await streamToString(stateFileStream.Body);
     await fs.writeFile(OSMDBT_STATE_PATH, stateFileContent);
+    await fs.writeFile(OSMDBT_STATE_BACKUP_PATH, stateFileContent);
   } catch (error) {
     throw new ErrorWithExitCode(
       `failed getting key: ${STATE_FILE} from bucket: ${bucketName} received the following error: ${error}`,
@@ -90,20 +103,22 @@ const getStateFile = async () => {
   }
 };
 
-const createDiff = async () => {
-  logger.info('initializing osmdbt for diff creation');
+const runOsmdbtCommand = async (command, commandArgs = [], onError = undefined) => {
+  logger.info(`preparing run of ${command}`);
   try {
-    await $`${path.join(OSMDBT_COMMANDS_PATH, OSMDBT_CATCHUP)} -c ${OSMDBT_CONFIG_PATH} -q`;
-    await $`${path.join(OSMDBT_COMMANDS_PATH, OSMDBT_GET_LOG)} -c ${OSMDBT_CONFIG_PATH} -q`;
-    await $`${path.join(OSMDBT_COMMANDS_PATH, OSMDBT_CATCHUP)} -c ${OSMDBT_CONFIG_PATH} -q`;
-    await $`${path.join(OSMDBT_COMMANDS_PATH, OSMDBT_CREATE_DIFF)} --max-changes=${appConfig.diffMaxChanges} -c ${OSMDBT_CONFIG_PATH} -q`;
+    const args = [...GLOBAL_OSMDBT_ARGS, ...commandArgs];
+    const commandPath = path.join(OSMDBT_BIN_PATH, command);
+    await $`${commandPath} ${args}`;
   } catch (error) {
-    logger.info(error);
+    if (onError) {
+      await onError();
+    }
     throw new ErrorWithExitCode(error.stderr, ExitCodes.OSMDBT_ERROR);
   }
 };
 
-const putObjectWrapper = async (bucketName, key, body, acl) => {
+const putObjectWrapper = async (key, body) => {
+  const { bucketName, acl } = objectStorageConfig;
   try {
     logger.info(`putting key: ${key} into bucket: ${bucketName}`);
     await s3Client.send(new PutObjectCommand({ Bucket: bucketName, Key: key, Body: body, ACL: acl }));
@@ -115,6 +130,20 @@ const putObjectWrapper = async (bucketName, key, body, acl) => {
   }
 };
 
+const changeLogFilesToUndone = async () => {
+  const { logDir } = osmdbtConfig;
+  const logFilesNames = await fs.readdir(logDir);
+  logFilesNames.forEach(async (logFileName) => {
+    if (!logFileName.endsWith(OSMDBT_DONE_LOG_PREFIX)) {
+      return;
+    }
+    const logFileNameUndone = logFileName.slice(0, logFileName.length - OSMDBT_DONE_LOG_PREFIX.length);
+    const currentPath = path.join(logDir, logFileName);
+    const newPath = path.join(logDir, logFileNameUndone);
+    await fs.rename(currentPath, newPath);
+  });
+};
+
 const processExitSafely = (exitCode) => {
   logger.info(`exiting safely with exit code: ${exitCode}`);
 
@@ -124,13 +153,24 @@ const processExitSafely = (exitCode) => {
   process.exit(exitCode);
 };
 
+const rollback = async () => {
+  logger.info('something went wrong running rollback');
+  await putObjectWrapper(STATE_FILE, fs.createReadStream(OSMDBT_STATE_BACKUP_PATH));
+}
+
 logger.info(`new job has started`);
 try {
+  await prepareEnvironment();
+
   s3Client = initializeS3Client();
-  await getStateFile();
+  await getStateFileFromS3ToFs();
   const lastSequenceNumber = await getSequenceNumber();
+
   logger.info(`last sequenceNumber: ${lastSequenceNumber} was fetched from object storage`);
-  await createDiff();
+
+  await runOsmdbtCommand(OSMDBT_GET_LOG, ['-m', osmdbtConfig.getLogMaxChanges]);
+  await runOsmdbtCommand(OSMDBT_CREATE_DIFF);
+
   const newSequenceNumber = await getSequenceNumber();
   if (lastSequenceNumber === newSequenceNumber) {
     logger.info(`no diff was found on this job, exiting gracefully`);
@@ -138,19 +178,24 @@ try {
   }
 
   logger.info(`diff was created for sequenceNumber: ${newSequenceNumber}, starting the upload`);
-  const { bucketName, acl } = objectStorageConfig;
+
   const [top, bottom, stateNumber] = getDiffDirPathComponents(newSequenceNumber);
   const newDiffAndStatePaths = [STATE_FILE, DIFF_FILE_EXTENTION].map((fileExtention) => path.join(top, bottom, `${stateNumber}.${fileExtention}`));
   newDiffAndStatePaths.forEach(async (filePath) => {
-    const localPath = path.join(appConfig.changesDir, filePath);
+    const localPath = path.join(osmdbtConfig.changesDir, filePath);
     const fileStream = fs.createReadStream(localPath);
-    await putObjectWrapper(bucketName, filePath, fileStream, acl);
+    await putObjectWrapper(filePath, fileStream);
   });
 
   logger.info(`finished the upload of the diff, uploading state file`);
-  await putObjectWrapper(bucketName, STATE_FILE, fs.createReadStream(OSMDBT_STATE_PATH), acl);
+
+  await putObjectWrapper(STATE_FILE, fs.createReadStream(OSMDBT_STATE_PATH));
+
+  await changeLogFilesToUndone();
+  await runOsmdbtCommand(OSMDBT_CATCHUP, [], rollback);
 
   logger.info(`job completed successfully, exiting gracefully`);
+
   processExitSafely(ExitCodes.SUCCESS);
 } catch (error) {
   logger.error(error.message);

@@ -1,4 +1,4 @@
-FROM postgres:13.4 as build
+FROM ubuntu:20.04 as build
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -7,24 +7,18 @@ RUN apt-get update && \
     cmake \
     g++ \
     libosmium2-dev \
-    libprotozero-dev \
     libboost-filesystem-dev \
     libboost-program-options-dev \
-    libbz2-dev \
-    zlib1g-dev \
-    libexpat1-dev \
     libyaml-cpp-dev \
-    libpqxx-dev \
-    postgresql-common \
-    postgresql-server-dev-all
+    libpqxx-dev
 
 RUN git clone git://github.com/openstreetmap/osmdbt.git && \
     cd osmdbt && \
     mkdir build && cd build && cmake -DBUILD_PLUGIN=OFF .. && cmake --build . && make && make install
 
-# FROM node:14-stretch-slim as production
-FROM postgres:13.4 as production
+FROM ubuntu:20.04 as production
 
+ENV DEBIAN_FRONTEND=noninteractive
 ENV workdir /app
 ARG NODE_VERSION=14.x
 

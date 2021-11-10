@@ -17,6 +17,13 @@ data:
   OBJECT_STORAGE_BUCKET_NAME: {{ .bucketName | quote }}
   OBJECT_STORAGE_ACL: {{ .acl | quote }}
   {{- end }}
-  APP_CHANGES_DIR: {{ .Values.application.changesDir | default "/tmp" | quote }}
-  APP_DIFF_MAX_CHANGES: {{ .Values.application.diffMaxChanges | quote }}
+  OSMDBT_CHANGES_DIR: {{ .Values.osmdbt.changesDir | default "/tmp" | quote }}
+  OSMDBT_LOG_DIR: {{ .Values.osmdbt.logDir | default "/tmp/log" | quote }}
+  OSMDBT_RUN_DIR: {{ .Values.osmdbt.runDir | default "/tmp" | quote }}
+  OSMDBT_GET_LOG_MAX_CHANGES: {{ .Values.osmdbt.getLogMaxChanges | quote }}
+  {{- if .Values.osmdbt.verbose }}
+  OSMDBT_VERBOSE: "true"
+  {{- else }}
+  OSMDBT_VERBOSE: "false"
+  {{- end }}
 {{- end -}}

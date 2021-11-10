@@ -13,9 +13,9 @@ data:
       dbname: {{ .Values.dbConfig.database }}
       user: {{ .Values.dbConfig.username }}
       password: {{ .Values.dbConfig.password }}
-      replication_slot: {{ .Values.application.replicationSlotName }}
-    log_dir: {{ .Values.application.logDir | default "/tmp" }}
-    changes_dir: {{ .Values.application.changesDir | default "/tmp" }}
-    tmp_dir: {{ .Values.application.tmpDir | default "/tmp" }}
-    run_dir: {{ .Values.application.runDir | default "/tmp" }}
+      replication_slot: {{ .Values.osmdbt.replicationSlotName }}
+    log_dir: {{ .Values.osmdbt.logDir | default "/tmp/log" }}
+    changes_dir: {{ .Values.osmdbt.changesDir | default "/tmp" }}
+    tmp_dir: {{ .Values.osmdbt.changesDir | default "/tmp" }}
+    run_dir: {{ .Values.osmdbt.runDir | default "/tmp" }}
 {{- end -}}

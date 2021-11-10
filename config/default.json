@@ -1,11 +1,14 @@
 {
-  "application": {
+  "osmdbt": {
     "changesDir": "/tmp",
-    "diffMaxChanges": 50000
+    "logDir": "/tmp/log",
+    "runDir": "/tmp",
+    "getLogMaxChanges": 1,
+    "verbose": false
   },
   "objectStorage": {
-    "endpoint": "http://localhost:9000/",
-    "bucketName": "bucketName",
+    "endpoint": "http://10.8.1.13:9000/",
+    "bucketName": "osmdbt",
     "acl": "public-read"
   }
 }

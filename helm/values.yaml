@@ -51,10 +51,10 @@ objectStrorageConfig:
   secretKey: secretKey
   acl: public-read
 
-application:
+osmdbt:
   replicationSlotName: replication_slot_name
-  diffMaxChanges: 50000
-  # logDir: /tmp
+  getLogMaxChanges: 50000
+  logDir: /tmp/log
   # changesDir: /tmp
-  # tmpDir: /tmp
   # runDir: /tmp
+  # verbose: true

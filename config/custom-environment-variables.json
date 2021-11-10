@@ -1,9 +1,15 @@
 {
-  "application": {
-    "changesDir": "APP_CHANGES_DIR",
-    "diffMaxChanges": {
-      "__name": "APP_DIFF_MAX_CHANGES",
+  "osmdbt": {
+    "changesDir": "OSMDBT_CHANGES_DIR",
+    "logDir": "OSMDBT_LOG_DIR",
+    "runDir": "OSMDBT_RUN_DIR",
+    "getLogMaxChanges": {
+      "__name": "OSMDBT_GET_LOG_MAX_CHANGES",
       "__format": "number"
+    },
+    "verbose": {
+      "__name": "OSMDBT_VERBOSE",
+      "__format": "boolean"
     }
   },
   "objectStorage": {

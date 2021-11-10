@@ -15,9 +15,8 @@ metadata:
     release: {{ $releaseName }}
     {{- include "osmdbt-wrapper.labels" . | nindent 4 }}
 spec:
-  failedJobsHistoryLimit: 2
-  successfulJobsHistoryLimit: 2
   schedule: {{ .Values.cronjob.schedule | quote }}
+  concurrencyPolicy: Forbid
   jobTemplate:
     spec:
       template:
