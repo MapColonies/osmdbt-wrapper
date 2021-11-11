@@ -31,6 +31,9 @@ resources:
       cpu: 100m
       memory: 128Mi
 
+env:
+  logLevel: info
+
 dbConfig:
   host: postgresHost
   username: postgres
@@ -40,9 +43,6 @@ dbConfig:
     enabled: false
     secretName: secret-name
     mountPath: '/tmp/certs-postgres'
-    certFileName: name.crt
-    keyFileName: name.key
-    caFileName: name.crt
 
 objectStrorageConfig:
   endpoint: http://localhost:9000/
@@ -54,7 +54,4 @@ objectStrorageConfig:
 osmdbt:
   replicationSlotName: replication_slot_name
   getLogMaxChanges: 50000
-  logDir: /tmp/log
-  # changesDir: /tmp
-  # runDir: /tmp
   # verbose: true

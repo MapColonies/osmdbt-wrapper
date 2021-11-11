@@ -26,14 +26,14 @@ COPY --from=build /osmdbt /osmdbt
 
 WORKDIR ${workdir}
 
+RUN apt-get update \
+    && apt-get -yq install curl \
+    && curl -L https://deb.nodesource.com/setup_${NODE_VERSION} | bash \
+    && apt-get -yq install nodejs libpqxx-dev libboost-program-options-dev libyaml-cpp-dev libboost-filesystem-dev
+
 RUN chmod g+w /app
 
 COPY package*.json /app/
-
-RUN apt-get update -yq \
-    && apt-get -yq install curl libpqxx-dev libboost-program-options-dev libyaml-cpp-dev libboost-filesystem-dev \
-    && curl -L https://deb.nodesource.com/setup_${NODE_VERSION} | bash \
-    && apt-get install -yq nodejs
 
 RUN npm i --only=production
 
@@ -44,7 +44,8 @@ COPY ./config ./config
 RUN chgrp root ${workdir}/start.sh && chmod -R a+rwx ${workdir} && \
     mkdir /.postgresql && chmod g+w /.postgresql
 
-RUN useradd -ms /bin/bash user && usermod -a -G root user
-USER user
+# uncomment while developing to make sure the docker runs on openshift
+# RUN useradd -ms /bin/bash user && usermod -a -G root user
+# USER user
 
 CMD ./start.sh

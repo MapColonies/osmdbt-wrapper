@@ -1,4 +1,7 @@
 {
+  "telemetry": {
+    "logger": "LOG_LEVEL"
+  },
   "osmdbt": {
     "changesDir": "OSMDBT_CHANGES_DIR",
     "logDir": "OSMDBT_LOG_DIR",
@@ -15,6 +18,8 @@
   "objectStorage": {
     "endpoint": "OBJECT_STORAGE_ENDPOINT",
     "bucketName": "OBJECT_STORAGE_BUCKET_NAME",
-    "acl": "OBJECT_STORAGE_ACL"
+    "acl": "OBJECT_STORAGE_ACL",
+    "accessKey": "AWS_ACCESS_KEY_ID",
+    "secretKey": "AWS_SECRET_ACCESS_KEY"
   }
 }

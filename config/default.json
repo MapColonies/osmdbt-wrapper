@@ -1,14 +1,21 @@
 {
+  "telemetry": {
+    "logger": {
+      "level": "info"
+    }
+  },
   "osmdbt": {
     "changesDir": "/tmp",
-    "logDir": "/tmp/log",
     "runDir": "/tmp",
-    "getLogMaxChanges": 1,
+    "logDir": "/tmp/log",
+    "getLogMaxChanges": 50000,
     "verbose": false
   },
   "objectStorage": {
-    "endpoint": "http://10.8.1.13:9000/",
+    "endpoint": "http://localhost:9000/",
     "bucketName": "osmdbt",
-    "acl": "public-read"
+    "acl": "public-read",
+    "accessKey": "accessKey",
+    "secretKey": "secretKey"
   }
 }

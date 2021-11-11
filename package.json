@@ -12,9 +12,10 @@
   "author": "MapColonies",
   "license": "ISC",
   "dependencies": {
-    "@map-colonies/js-logger": "0.0.3",
     "@aws-sdk/client-s3": "^3.39.0",
+    "@map-colonies/js-logger": "0.0.3",
     "config": "^3.3.6",
+    "mime-types": "^2.1.34",
     "zx": "^4.2.0"
   },
   "devDependencies": {
