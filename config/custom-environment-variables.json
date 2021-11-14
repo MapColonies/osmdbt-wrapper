@@ -1,6 +1,8 @@
 {
   "telemetry": {
-    "logger": "LOG_LEVEL"
+    "logger": {
+      "level": "LOG_LEVEL"
+    }
   },
   "osmdbt": {
     "changesDir": "OSMDBT_CHANGES_DIR",

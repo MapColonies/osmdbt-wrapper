@@ -52,10 +52,12 @@ const logger = jsLogger.default({ ...loggerConfig });
 let s3Client;
 
 const createDirectory = async (dir) => {
+  logger.debug(`creating directory ${dir}`);
   await fsPromises.mkdir(dir, { recursive: true });
 };
 
 const prepareEnvironment = async () => {
+  logger.debug(`preparing environment`);
   const { logDir, changesDir, runDir } = osmdbtConfig;
   const backupDir = path.join(changesDir, 'backup');
   [logDir, changesDir, runDir, backupDir].forEach(async (dir) => await createDirectory(dir));
@@ -71,6 +73,7 @@ const streamToString = (stream) => {
 };
 
 const getSequenceNumber = async () => {
+  logger.debug(`getting sequenceNumber from ${OSMDBT_STATE_PATH}`);
   const stateFileContent = await fsPromises.readFile(OSMDBT_STATE_PATH, 'utf-8');
   const matchResult = stateFileContent.match(/sequenceNumber=\d+/);
   if (matchResult === null || matchResult.length === 0) {
@@ -91,6 +94,7 @@ const getDiffDirPathComponents = (sequenceNumber) => {
 
 const initializeS3Client = () => {
   const { endpoint } = objectStorageConfig;
+  logger.debug(`initializing s3 client, configured endpoint: ${endpoint}`);
   return new S3Client({
     signatureVersion: 'v4',
     endpoint,
@@ -100,6 +104,7 @@ const initializeS3Client = () => {
 };
 
 const getStateFileFromS3ToFs = async () => {
+  logger.debug(`getting state file from s3`);
   const bucketName = objectStorageConfig.bucketName;
   try {
     const stateFileStream = await s3Client.send(new GetObjectCommand({ Bucket: bucketName, Key: STATE_FILE }));
@@ -119,6 +124,7 @@ const runOsmdbtCommand = async (command, commandArgs = [], onError = undefined) 
   try {
     const args = [...GLOBAL_OSMDBT_ARGS, ...commandArgs];
     const commandPath = path.join(OSMDBT_BIN_PATH, command);
+    logger.debug(`command to be run: ${commandPath} ${args.join(' ')}`);
     await $`${commandPath} ${args}`;
   } catch (error) {
     if (onError) {
@@ -131,7 +137,9 @@ const runOsmdbtCommand = async (command, commandArgs = [], onError = undefined) 
 const uploadDiff = async (sequenceNumber) => {
   const [top, bottom, stateNumber] = getDiffDirPathComponents(sequenceNumber);
   const newDiffAndStatePaths = [STATE_FILE, DIFF_FILE_EXTENTION].map((fileExtention) => path.join(top, bottom, `${stateNumber}.${fileExtention}`));
-  const uploads = newDiffAndStatePaths.map((filePath) => {
+  logger.debug(`uploading diff of sequence number: ${sequenceNumber} total of ${newDiffAndStatePaths.length} files`);
+  const uploads = newDiffAndStatePaths.map((filePath, index) => {
+    logger.debug(`uploading ${index + 1} out of ${newDiffAndStatePaths.length}, file: ${filePath}`)
     return new Promise((resolve) => {
       const localPath = path.join(osmdbtConfig.changesDir, filePath);
       const fileStream = fs.createReadStream(localPath);
@@ -144,10 +152,10 @@ const uploadDiff = async (sequenceNumber) => {
 
 const putObjectWrapper = async (key, body) => {
   const { bucketName, acl } = objectStorageConfig;
-  const possibleContentType = mime.contentType(key);
+  const possibleContentType = mime.contentType(key.split('/').pop());
   const contentType = possibleContentType ? possibleContentType : undefined;
   try {
-    logger.info(`putting key: ${key} into bucket: ${bucketName}`);
+    logger.info(`putting key: ${key} into bucket: ${bucketName}, content type: ${contentType}, acl: ${acl}`);
     await s3Client.send(new PutObjectCommand({ Bucket: bucketName, Key: key, Body: body, ContentType: contentType, ACL: acl }));
   } catch (error) {
     throw new ErrorWithExitCode(
@@ -160,6 +168,7 @@ const putObjectWrapper = async (key, body) => {
 const markLogFilesForCatchup = async () => {
   const { logDir } = osmdbtConfig;
   const logFilesNames = await fsPromises.readdir(logDir);
+  logger.debug(`marking log files for catchup, found ${logFilesNames.length} potential log files`)
   logFilesNames.forEach(async (logFileName) => {
     if (!logFileName.endsWith(OSMDBT_DONE_LOG_PREFIX)) {
       return;
@@ -167,6 +176,7 @@ const markLogFilesForCatchup = async () => {
     const logFileNameForCatchup = logFileName.slice(0, logFileName.length - OSMDBT_DONE_LOG_PREFIX.length);
     const currentPath = path.join(logDir, logFileName);
     const newPath = path.join(logDir, logFileNameForCatchup);
+    logger.debug(`found log for catchup, marking ${logFileName} for catchup`);
     await fsPromises.rename(currentPath, newPath);
   });
 };
