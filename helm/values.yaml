@@ -1,7 +1,6 @@
 global:
   cloudProvider: {}
   tracing: {}
-  metrics: {}
   environment: {}
 
 enabled: true
@@ -19,7 +18,7 @@ image:
 
 cronjob:
   schedule: '* */1 * * *'
-  apiVersion: 'batch/v1beta1' # depends on openshift version batch/v1 or batch/v1beta1
+  apiVersion: 'batch/v1' # depends on openshift version batch/v1 or batch/v1beta1
 
 resources:
   enabled: false
@@ -33,6 +32,9 @@ resources:
 
 env:
   logLevel: info
+  tracing:
+    enabled: true
+    url: 'http://localhost:55681/v1/trace'
 
 dbConfig:
   host: postgresHost

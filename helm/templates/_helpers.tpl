@@ -91,3 +91,14 @@ Returns the cloud provider docker registry url from global if exists or from the
     {{- .Values.cloudProvider.dockerRegistryUrl -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Returns the tracing url from global if exists or from the chart's values
+*/}}
+{{- define "osmdbt-wrapper.tracingUrl" -}}
+{{- if .Values.global.tracing.url }}
+    {{- .Values.global.tracing.url -}}
+{{- else if .Values.env.tracing.url -}}
+    {{- .Values.env.tracing.url -}}
+{{- end -}}
+{{- end -}}

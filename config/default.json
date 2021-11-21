@@ -2,6 +2,10 @@
   "telemetry": {
     "logger": {
       "level": "info"
+    },
+    "tracing": {
+      "enabled": true,
+      "url": "http://localhost:4318/v1/trace"
     }
   },
   "osmdbt": {
@@ -13,9 +17,9 @@
   },
   "objectStorage": {
     "endpoint": "http://localhost:9000/",
-    "bucketName": "osmdbt",
+    "bucketName": "bucketName",
     "acl": "public-read",
-    "accessKey": "accessKey",
-    "secretKey": "secretKey"
+    "accessKey": "key",
+    "secretKey": "secret"
   }
 }

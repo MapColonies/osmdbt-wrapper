@@ -39,4 +39,5 @@ Only one job can run at a time to prevent a race condition on the replication sl
 | 101              | state fetch error         | failure in fetching the state file from s3.                                     |
 | 102              | invalid state error       | state file located in s3 is invalid.                                            |
 | 103              | s3 upload error           | s3 upload failed.                                                               |
+| 104              | rollback error            | rolling back failed.                                                            |
 | 130              | terminated                | the program was terminated by the user.                                         |
