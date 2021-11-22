@@ -45,7 +45,7 @@ RUN chgrp root ${workdir}/start.sh && chmod -R a+rwx ${workdir} && \
     mkdir /.postgresql && chmod g+w /.postgresql
 
 # uncomment while developing to make sure the docker runs on openshift
-RUN useradd -ms /bin/bash user && usermod -a -G root user
-USER user
+# RUN useradd -ms /bin/bash user && usermod -a -G root user
+# USER user
 
 CMD ./start.sh

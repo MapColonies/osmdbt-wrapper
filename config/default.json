@@ -19,7 +19,7 @@
     "endpoint": "http://localhost:9000/",
     "bucketName": "bucketName",
     "acl": "public-read",
-    "accessKey": "key",
-    "secretKey": "secret"
+    "accessKey": "accessKey",
+    "secretKey": "secretKey"
   }
 }

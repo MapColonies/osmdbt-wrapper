@@ -363,7 +363,7 @@ const main = async () => {
     const lastSequenceNumber = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
 
     logger.info(`last sequenceNumber: ${lastSequenceNumber} was fetched from object storage`);
-    singleJobSpan.setAttribute('job.sequenceNumber.last', lastSequenceNumber);
+    singleJobSpan.setAttribute('job.sequenceNumber.start', lastSequenceNumber);
 
     await tracer.startActiveSpan(
       'osmdbt.get-log',
@@ -386,7 +386,7 @@ const main = async () => {
     }
 
     logger.info(`diff was created for sequenceNumber: ${newSequenceNumber}, starting the upload`);
-    singleJobSpan.setAttribute('job.sequenceNumber.new', newSequenceNumber);
+    singleJobSpan.setAttribute('job.sequenceNumber.end', newSequenceNumber);
 
     await tracer.startActiveSpan('upload-diff', undefined, contextAPI.active(), async (span) => await uploadDiff(newSequenceNumber, span));
 
@@ -403,7 +403,7 @@ const main = async () => {
       await tracer.startActiveSpan('commit-changes', undefined, contextAPI.active(), commitChanges);
     } catch (error) {
       await tracer.startActiveSpan('rollback', undefined, contextAPI.active(), rollback);
-      singleJobSpan.setAttribute('job.sequenceNumber.new', lastSequenceNumber);
+      singleJobSpan.setAttribute('job.sequenceNumber.end', lastSequenceNumber);
       throw error;
     }
 
