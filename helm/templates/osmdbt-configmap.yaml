@@ -1,0 +1,21 @@
+{{- $releaseName := .Release.Name -}}
+{{- $chartName := include "osmdbt-wrapper.name" . -}}
+{{- if .Values.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $releaseName }}-{{ $chartName }}-osmdbt-configmap
+data:
+  osmdbt-config.yaml: |-
+    database:
+      host: {{ .Values.dbConfig.host }}
+      port: 5432
+      dbname: {{ .Values.dbConfig.database }}
+      user: {{ .Values.dbConfig.username }}
+      password: {{ .Values.dbConfig.password }}
+      replication_slot: {{ .Values.osmdbt.replicationSlotName }}
+    log_dir: /tmp/log
+    changes_dir: /tmp
+    tmp_dir: /tmp
+    run_dir: /tmp
+{{- end -}}

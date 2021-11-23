@@ -1,0 +1,37 @@
+{
+  "telemetry": {
+    "serviceName": "TELEMETRY_SERVICE_NAME",
+    "hostname": "TELEMETRY_HOST_NAME",
+    "version": "TELEMETRY_SERVICE_VERSION",
+    "logger": {
+      "level": "LOG_LEVEL"
+    },
+    "tracing": {
+      "enabled": {
+        "__name": "TELEMETRY_TRACING_ENABLED",
+        "__format": "boolean"
+      },
+      "url": "TELEMETRY_TRACING_URL"
+    }
+  },
+  "osmdbt": {
+    "changesDir": "OSMDBT_CHANGES_DIR",
+    "logDir": "OSMDBT_LOG_DIR",
+    "runDir": "OSMDBT_RUN_DIR",
+    "getLogMaxChanges": {
+      "__name": "OSMDBT_GET_LOG_MAX_CHANGES",
+      "__format": "number"
+    },
+    "verbose": {
+      "__name": "OSMDBT_VERBOSE",
+      "__format": "boolean"
+    }
+  },
+  "objectStorage": {
+    "endpoint": "OBJECT_STORAGE_ENDPOINT",
+    "bucketName": "OBJECT_STORAGE_BUCKET_NAME",
+    "acl": "OBJECT_STORAGE_ACL",
+    "accessKey": "AWS_ACCESS_KEY_ID",
+    "secretKey": "AWS_SECRET_ACCESS_KEY"
+  }
+}
