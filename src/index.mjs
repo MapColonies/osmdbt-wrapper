@@ -387,7 +387,7 @@ const main = async () => {
 
     s3Client = initializeS3Client();
 
-    await tracer.startActiveSpan('get-last-state', undefined, contextAPI.active(), getStateFileFromS3ToFs);
+    await tracer.startActiveSpan('get-start-state', undefined, contextAPI.active(), getStateFileFromS3ToFs);
     const startState = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
 
     logger.info({ msg: 'starting job with fetched start state from object storage', startState });
@@ -408,24 +408,24 @@ const main = async () => {
       async (span) => await runOsmdbtCommand(OSMDBT_CREATE_DIFF, undefined, span)
     );
 
-    const endState = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
-    if (startState === endState) {
+    const newSequenceNumber = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
+    if (startState === newSequenceNumber) {
       logger.info({ msg: 'no diffs were found on this job, exiting gracefully', startState, endState });
       await processExitSafely(ExitCodes.SUCCESS);
     }
 
-    logger.info({ msg: 'diff was created, starting the upload', state: endState });
+    logger.info({ msg: 'diff was created, starting the upload', state: newSequenceNumber });
 
-    singleJobSpan.setAttribute('job.state.end', endState);
+    singleJobSpan.setAttribute('job.state.end', newSequenceNumber);
 
-    await tracer.startActiveSpan('upload-diff', undefined, contextAPI.active(), async (span) => await uploadDiff(endState, span));
+    await tracer.startActiveSpan('upload-diff', undefined, contextAPI.active(), async (span) => await uploadDiff(newSequenceNumber, span));
 
     logger.info({ msg: 'finished the upload of the diff, uploading state file', state: endState });
 
-    const newState = await promisifySpan('fs.read', { 'file.path': OSMDBT_STATE_PATH, 'file.name': STATE_FILE }, contextAPI.active(), () =>
+    const endState = await promisifySpan('fs.read', { 'file.path': OSMDBT_STATE_PATH, 'file.name': STATE_FILE }, contextAPI.active(), () =>
       fsPromises.readFile(OSMDBT_STATE_PATH)
     );
-    await putObjectWrapper(STATE_FILE, newState);
+    await putObjectWrapper(STATE_FILE, endState);
 
     logger.info({ msg: 'finished the upload of the end state file, commiting changes', endState });
 
@@ -441,7 +441,7 @@ const main = async () => {
 
     logger.info({ msg: 'job completed successfully, exiting gracefully', startState, endState });
   } catch (error) {
-    logger.error({ err: error, msg: 'an error occoured exiting safely', exitCode: error.exitCode });
+    logger.error({ err: error, msg: 'an error occurred exiting safely', exitCode: error.exitCode });
     jobExitCode = error.exitCode;
   } finally {
     await processExitSafely(jobExitCode);
