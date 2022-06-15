@@ -69,14 +69,16 @@ process.on('SIGINT', async () => {
 });
 
 const prepareEnvironment = async (span) => {
-  logger.debug(`preparing environment`);
   const { logDir, changesDir, runDir } = osmdbtConfig;
+
+  logger.debug({ msg: 'preparing environment', osmdbtDirs: { logDir, changesDir, runDir } });
+
   const backupDir = path.join(changesDir, 'backup');
   const uniqueDirs = [logDir, changesDir, runDir, backupDir].filter((dir, index, dirs) => dirs.indexOf(dir) === index);
-  span.setAttribute('dir.create.amount', uniqueDirs.length);
+  span.setAttribute('dir.create.count', uniqueDirs.length);
 
   const makeDirPromises = uniqueDirs.map(async (dir) => {
-    logger.debug(`creating directory ${dir}`);
+    logger.debug({ msg: 'creating directory', dir });
     await promisifySpan('fs.mkdir', { 'dir.path': dir }, contextAPI.active(), () => fsPromises.mkdir(dir, { recursive: true }));
   });
 
@@ -90,11 +92,14 @@ const prepareEnvironment = async (span) => {
 };
 
 const getSequenceNumber = async (span) => {
-  logger.debug(`getting sequenceNumber from ${OSMDBT_STATE_PATH}`);
+  logger.debug({ msg: 'fetching sequence number from file', file: OSMDBT_STATE_PATH });
+
   span.setAttribute('file.path', OSMDBT_STATE_PATH);
   const stateFileContent = await fsPromises.readFile(OSMDBT_STATE_PATH, 'utf-8');
   const matchResult = stateFileContent.match(/sequenceNumber=\d+/);
   if (matchResult === null || matchResult.length === 0) {
+    logger.error({ msg: 'failed to fetch sequence number from file', file: OSMDBT_STATE_PATH });
+
     const error = new ErrorWithExitCode(
       `failed to fetch sequence number out of the state file, ${STATE_FILE} is invalid`,
       ExitCodes.INVALID_STATE_FILE_ERROR
@@ -108,8 +113,8 @@ const getSequenceNumber = async (span) => {
 };
 
 const initializeS3Client = () => {
-  const { endpoint, bucketName } = objectStorageConfig;
-  logger.debug(`initializing s3 client, configured endpoint: ${endpoint}, bucket: ${bucketName}`);
+  const { endpoint, bucketName, acl } = objectStorageConfig;
+  logger.info({ msg: 'initializing s3 client', endpoint, bucketName, acl });
 
   baseS3SnapAttributes = {
     [SemanticAttributes.RPC_SYSTEM]: 'aws.api',
@@ -129,7 +134,7 @@ const initializeS3Client = () => {
 };
 
 const getStateFileFromS3ToFs = async (span) => {
-  logger.debug(`getting state file from s3`);
+  logger.debug({ msg: 'getting state file from s3' });
   let stateFileStream;
 
   try {
@@ -141,7 +146,7 @@ const getStateFileFromS3ToFs = async (span) => {
 
   const stateFileContent = await streamToString(stateFileStream.Body);
   const writeFilesPromises = [OSMDBT_STATE_PATH, OSMDBT_STATE_BACKUP_PATH].map(async (path) => {
-    logger.debug(`writing file ${path}`);
+    logger.debug({ msg: 'writing file', path });
     await promisifySpan('fs.write', { 'file.path': path }, contextAPI.active(), () => fsPromises.writeFile(path, stateFileContent));
   });
 
@@ -156,16 +161,19 @@ const getStateFileFromS3ToFs = async (span) => {
 };
 
 const runOsmdbtCommand = async (command, commandArgs = [], span) => {
-  logger.info(`preparing run of ${command}`);
+  const args = [...GLOBAL_OSMDBT_ARGS, ...commandArgs];
+  logger.info({ msg: 'executing command', executable: 'osmdbt', command, args });
+
   try {
-    const args = [...GLOBAL_OSMDBT_ARGS, ...commandArgs];
-    const commandPath = path.join(OSMDBT_BIN_PATH, command);
     const prettyArgs = args.join(' ');
-    logger.debug(`command to be run: ${commandPath} ${prettyArgs}`);
     span.setAttributes({ ...baseOsmdbtSnapAttributes, 'osmdbt.command': command, 'osmdbt.command.args': `${prettyArgs}` });
+
+    const commandPath = path.join(OSMDBT_BIN_PATH, command);
     await $`${commandPath} ${args}`;
     handleSpanOnSuccess(span);
   } catch (error) {
+    logger.error({ msg: 'failure occurred during command execution', executable: 'osmdbt', command, args });
+
     handleSpanOnError(span, error);
     throw new ErrorWithExitCode(error.stderr, ExitCodes.OSMDBT_ERROR);
   }
@@ -183,16 +191,17 @@ const uploadDiff = async (sequenceNumber, span) => {
   }
   const newDiffAndStatePaths = [STATE_FILE, DIFF_FILE_EXTENTION].map((fileExtention) => path.join(top, bottom, `${stateNumber}.${fileExtention}`));
 
-  logger.debug(`uploading diff of sequence number: ${sequenceNumber} total of ${newDiffAndStatePaths.length} files`);
+  logger.debug({ msg: 'uploading diff and state files', state: sequenceNumber, filesCount: newDiffAndStatePaths.length });
 
-  const uploads = newDiffAndStatePaths.map(async (filePath, index) => {
-    logger.debug(`uploading ${index + 1} out of ${newDiffAndStatePaths.length}, file: ${filePath}`);
+  const uploads = newDiffAndStatePaths.map(async (filePath) => {
+    logger.debug({ msg: 'uploading file', filePath });
+
     const localPath = path.join(osmdbtConfig.changesDir, filePath);
     const uploadContent = await promisifySpan('fs.read', { 'file.path': localPath }, contextAPI.active(), () => fsPromises.readFile(localPath));
     await putObjectWrapper(filePath, uploadContent);
   });
 
-  span.setAttributes({ 'upload.amount': uploads.length, 'upload.sequenceNumber': sequenceNumber });
+  span.setAttributes({ 'upload.count': uploads.length, 'upload.state': sequenceNumber });
 
   try {
     await Promise.all(uploads);
@@ -206,6 +215,9 @@ const uploadDiff = async (sequenceNumber, span) => {
 const getObjectWrapper = async (key) => {
   let span;
   const bucketName = objectStorageConfig.bucketName;
+
+  logger.debug({ msg: 'getting object from s3', bucketName, key });
+
   try {
     span = tracer.startSpan(
       's3.getObject',
@@ -219,7 +231,10 @@ const getObjectWrapper = async (key) => {
     handleSpanOnSuccess(span);
     return stream;
   } catch (error) {
+    logger.error({ err: error, msg: 'failed getting key from bucket', bucketName, key });
+
     handleSpanOnError(span, error);
+
     throw new ErrorWithExitCode(
       `failed getting key: ${key} from bucket: ${bucketName} received the following error: ${error}`,
       ExitCodes.STATE_FETCH_FAILURE_ERROR
@@ -229,11 +244,14 @@ const getObjectWrapper = async (key) => {
 
 const putObjectWrapper = async (key, body) => {
   const { bucketName, acl } = objectStorageConfig;
+
   const possibleContentType = mime.contentType(key.split('/').pop());
   const contentType = possibleContentType ? possibleContentType : undefined;
   let span;
+
+  logger.debug({ msg: 'putting key in bucket', key, bucketName, acl, contentType });
+
   try {
-    logger.info(`putting key: ${key} into bucket: ${bucketName}, content type: ${contentType ?? 'unknown'}, acl: ${acl}`);
     span = tracer.startSpan(
       's3.putObject',
       {
@@ -248,10 +266,13 @@ const putObjectWrapper = async (key, body) => {
       },
       contextAPI.active()
     );
+
     await s3Client.send(new PutObjectCommand({ Bucket: bucketName, Key: key, Body: body, ContentType: contentType, ACL: acl }));
     handleSpanOnSuccess(span);
     filesUploaded++;
   } catch (error) {
+    logger.error({ err: error, msg: 'failed putting key in bucket', acl, bucketName, key });
+
     handleSpanOnError(span, error);
     throw new ErrorWithExitCode(
       `failed putting key: ${key} into bucket: ${bucketName} received the following error: ${error}`,
@@ -261,6 +282,8 @@ const putObjectWrapper = async (key, body) => {
 };
 
 const commitChanges = async (span) => {
+  logger.info({ msg: 'commiting changes by marking logs and catching up' });
+
   try {
     await tracer.startActiveSpan('mark-logs', undefined, contextAPI.active(), markLogFilesForCatchup);
     await tracer.startActiveSpan(
@@ -279,7 +302,8 @@ const commitChanges = async (span) => {
 const markLogFilesForCatchup = async (span) => {
   const { logDir } = osmdbtConfig;
   const logFilesNames = await fsPromises.readdir(logDir);
-  logger.debug(`marking log files for catchup, found ${logFilesNames.length} potential log files`);
+
+  logger.debug({ msg: 'marking log files for catchup', count: logFilesNames.length });
 
   const renameFilesPromises = logFilesNames.map(async (logFileName) => {
     if (!logFileName.endsWith(OSMDBT_DONE_LOG_PREFIX)) {
@@ -293,7 +317,7 @@ const markLogFilesForCatchup = async (span) => {
     );
   });
 
-  span.setAttribute('mark.amount', renameFilesPromises.length);
+  span.setAttribute('mark.count', renameFilesPromises.length);
 
   try {
     await Promise.all(renameFilesPromises);
@@ -305,7 +329,8 @@ const markLogFilesForCatchup = async (span) => {
 };
 
 const rollback = async (span) => {
-  logger.info('something went wrong running rollback');
+  logger.info({ msg: 'something went wrong while processing state running rollback' });
+
   singleJobSpan.setAttribute('job.rollback', true);
   try {
     const backupState = await promisifySpan('fs.read', { 'file.path': OSMDBT_STATE_BACKUP_PATH, 'file.name': STATE_FILE }, contextAPI.active(), () =>
@@ -314,18 +339,19 @@ const rollback = async (span) => {
     await putObjectWrapper(STATE_FILE, backupState);
     handleSpanOnSuccess(span);
   } catch (error) {
+    logger.error({ msg: 'failed to rollback', err: error });
+
     handleSpanOnError(span, error);
-    logger.error(error.message);
     await processExitSafely(ExitCodes.ROLLBACK_FAILURE_ERROR);
   }
 };
 
 const processExitSafely = async (exitCode = ExitCodes.GENERAL_ERROR) => {
-  logger.info(`exiting safely with exit code: ${exitCode}`);
+  logger.info({ msg: 'exiting safely', exitCode });
 
   let rootSpanStatus;
   rootSpanStatus = exitCode == (ExitCodes.SUCCESS || ExitCodes.TERMINATED) ? SpanStatusCode.OK : SpanStatusCode.ERROR;
-  singleJobSpan.setAttributes({ 'job.exitCode': exitCode, 'job.upload.amount': filesUploaded });
+  singleJobSpan.setAttributes({ 'job.exitCode': exitCode, 'job.upload.count': filesUploaded });
   singleJobSpan.setStatus(rootSpanStatus);
 
   await cleanup();
@@ -333,6 +359,7 @@ const processExitSafely = async (exitCode = ExitCodes.GENERAL_ERROR) => {
 };
 
 const cleanup = async () => {
+  logger.debug({ msg: 'cleaning up by stopping active processes' });
   if (s3Client !== undefined) {
     s3Client.destroy();
   }
@@ -353,17 +380,19 @@ const handleSpanOnError = (span, error) => {
 };
 
 const main = async () => {
-  logger.info(`new job has started`);
+  logger.info({ msg: 'new job has started' });
+
   try {
     await tracer.startActiveSpan('prepare-environment', undefined, contextAPI.active(), prepareEnvironment);
 
     s3Client = initializeS3Client();
 
-    await tracer.startActiveSpan('get-last-state', undefined, contextAPI.active(), getStateFileFromS3ToFs);
-    const lastSequenceNumber = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
+    await tracer.startActiveSpan('get-start-state', undefined, contextAPI.active(), getStateFileFromS3ToFs);
+    const startState = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
 
-    logger.info(`last sequenceNumber: ${lastSequenceNumber} was fetched from object storage`);
-    singleJobSpan.setAttribute('job.sequenceNumber.start', lastSequenceNumber);
+    logger.info({ msg: 'starting job with fetched start state from object storage', startState });
+
+    singleJobSpan.setAttribute('job.state.start', startState);
 
     await tracer.startActiveSpan(
       'osmdbt.get-log',
@@ -380,36 +409,39 @@ const main = async () => {
     );
 
     const newSequenceNumber = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
-    if (lastSequenceNumber === newSequenceNumber) {
-      logger.info(`no diff was found on this job, exiting gracefully`);
+    if (startState === newSequenceNumber) {
+      logger.info({ msg: 'no diffs were found on this job, exiting gracefully', startState, endState });
       await processExitSafely(ExitCodes.SUCCESS);
     }
 
-    logger.info(`diff was created for sequenceNumber: ${newSequenceNumber}, starting the upload`);
-    singleJobSpan.setAttribute('job.sequenceNumber.end', newSequenceNumber);
+    logger.info({ msg: 'diff was created, starting the upload', state: newSequenceNumber });
+
+    singleJobSpan.setAttribute('job.state.end', newSequenceNumber);
 
     await tracer.startActiveSpan('upload-diff', undefined, contextAPI.active(), async (span) => await uploadDiff(newSequenceNumber, span));
 
-    logger.info(`finished the upload of the diff, uploading state file`);
+    logger.info({ msg: 'finished the upload of the diff, uploading state file', state: endState });
 
-    const newState = await promisifySpan('fs.read', { 'file.path': OSMDBT_STATE_PATH, 'file.name': STATE_FILE }, contextAPI.active(), () =>
+    const endState = await promisifySpan('fs.read', { 'file.path': OSMDBT_STATE_PATH, 'file.name': STATE_FILE }, contextAPI.active(), () =>
       fsPromises.readFile(OSMDBT_STATE_PATH)
     );
-    await putObjectWrapper(STATE_FILE, newState);
+    await putObjectWrapper(STATE_FILE, endState);
 
-    logger.info(`finished the upload of the state file, commiting changes`);
+    logger.info({ msg: 'finished the upload of the end state file, commiting changes', endState });
 
     try {
       await tracer.startActiveSpan('commit-changes', undefined, contextAPI.active(), commitChanges);
     } catch (error) {
+      logger.error({ err: error, msg: 'an error accord during commiting changes for state', state: endState });
+
       await tracer.startActiveSpan('rollback', undefined, contextAPI.active(), rollback);
-      singleJobSpan.setAttribute('job.sequenceNumber.end', lastSequenceNumber);
+      singleJobSpan.setAttribute('job.state.end', startState);
       throw error;
     }
 
-    logger.info(`job completed successfully, exiting gracefully`);
+    logger.info({ msg: 'job completed successfully, exiting gracefully', startState, endState });
   } catch (error) {
-    logger.error(error.message);
+    logger.error({ err: error, msg: 'an error occurred exiting safely', exitCode: error.exitCode });
     jobExitCode = error.exitCode;
   } finally {
     await processExitSafely(jobExitCode);

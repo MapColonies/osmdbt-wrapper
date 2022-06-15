@@ -12,7 +12,7 @@ RUN apt-get update && \
     libyaml-cpp-dev \
     libpqxx-dev
 
-RUN git clone git://github.com/openstreetmap/osmdbt.git && \
+RUN git clone https://github.com/openstreetmap/osmdbt.git && \
     cd osmdbt && \
     mkdir build && cd build && cmake -DBUILD_PLUGIN=OFF .. && cmake --build . && make && make install
 

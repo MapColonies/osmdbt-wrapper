@@ -1,7 +1,8 @@
 {
   "telemetry": {
     "logger": {
-      "level": "info"
+      "level": "info",
+      "prettyPrint": false
     },
     "tracing": {
       "enabled": true,
