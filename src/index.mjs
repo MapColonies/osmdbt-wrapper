@@ -6,7 +6,7 @@ import config from 'config';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import mime from 'mime-types';
 import jsLogger from '@map-colonies/js-logger';
-import { Tracing, logMethod } from '@map-colonies/telemetry';
+import { Tracing, getOtelMixin } from '@map-colonies/telemetry';
 import { trace as traceAPI, context as contextAPI, SpanStatusCode, SpanKind } from '@opentelemetry/api';
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
 import { streamToString, getDiffDirPathComponents } from './util.mjs';
@@ -45,7 +45,7 @@ let baseS3SnapAttributes;
 const baseOsmdbtSnapAttributes = {
   [SemanticAttributes.RPC_SYSTEM]: 'osmdbt',
 };
-const logger = jsLogger.default({ ...telemetryConfig.logger, hooks: { logMethod } });
+const logger = jsLogger.default({ ...telemetryConfig.logger, mixin: getOtelMixin() });
 let jobExitCode = ExitCodes.SUCCESS;
 let filesUploaded = 0;
 let s3Client;
