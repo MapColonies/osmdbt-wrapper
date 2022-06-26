@@ -14,12 +14,26 @@ metadata:
     environment: {{ include "osmdbt-wrapper.environment" . }}
     release: {{ $releaseName }}
     {{- include "osmdbt-wrapper.labels" . | nindent 4 }}
+{{- with .Values.cronAnnotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+{{- end }}
 spec:
   schedule: {{ .Values.cronjob.schedule | quote }}
   concurrencyPolicy: Forbid
   jobTemplate:
+{{- with .Values.jobAnnotations }}
+    metadata:
+      annotations:
+{{ toYaml . | indent 8 }}
+{{- end }}
     spec:
       template:
+{{- with .Values.podAnnotations }}
+        metadata:
+          annotations:
+{{ toYaml . | indent 12 }}
+{{- end }}
         spec:
           containers:
           - name: {{ $releaseName }}-{{ $chartName }}-cronjob

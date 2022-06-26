@@ -6,6 +6,10 @@ global:
 enabled: true
 environment: development
 
+cronAnnotations: {}
+jobAnnotations: {}
+podAnnotations: {}
+
 cloudProvider:
   flavor: openshift
   dockerRegistryUrl: my-registry.io
@@ -35,6 +39,7 @@ env:
   tracing:
     enabled: true
     url: 'http://localhost:55681/v1/trace'
+    ratio: 1
 
 dbConfig:
   host: postgresHost
