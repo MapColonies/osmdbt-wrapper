@@ -44,7 +44,7 @@ spec:
             image: {{ .repository }}:{{ $tag }}
             {{- end }}
             {{- end }}
-            imagePullPolicy: {{ .pullPolicy }}
+            imagePullPolicy: {{ .Values.image.pullPolicy }}
             envFrom:
             - configMapRef:
                 name: {{ $releaseName }}-{{ $chartName }}-configmap
