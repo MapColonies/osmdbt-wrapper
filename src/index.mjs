@@ -1,5 +1,4 @@
 #!/usr/bin/env zx
-
 import 'zx/globals';
 import fsPromises from 'fs/promises';
 import config from 'config';
@@ -23,6 +22,7 @@ import {
   DIFF_FILE_EXTENTION,
 } from './constants.mjs';
 
+$.verbose = false;
 const tracing = new Tracing();
 tracing.start();
 const tracer = traceAPI.getTracer('osmdbt-wrapper');
@@ -333,13 +333,13 @@ const rollback = async (span) => {
 
   singleJobSpan.setAttribute('job.rollback', true);
   try {
-    const backupState = await promisifySpan('fs.read', { 'file.path': OSMDBT_STATE_BACKUP_PATH, 'file.name': STATE_FILE }, contextAPI.active(), () =>
+    const backupStateFileBuffer = await promisifySpan('fs.read', { 'file.path': OSMDBT_STATE_BACKUP_PATH, 'file.name': STATE_FILE }, contextAPI.active(), () =>
       fsPromises.readFile(OSMDBT_STATE_BACKUP_PATH)
     );
-    await putObjectWrapper(STATE_FILE, backupState);
+    await putObjectWrapper(STATE_FILE, backupStateFileBuffer);
     handleSpanOnSuccess(span);
   } catch (error) {
-    logger.error({ msg: 'failed to rollback', err: error });
+    logger.fatal({ msg: 'failed to rollback', err: error });
 
     handleSpanOnError(span, error);
     await processExitSafely(ExitCodes.ROLLBACK_FAILURE_ERROR);
@@ -408,31 +408,32 @@ const main = async () => {
       async (span) => await runOsmdbtCommand(OSMDBT_CREATE_DIFF, undefined, span)
     );
 
-    const newSequenceNumber = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
-    if (startState === newSequenceNumber) {
+    const endState = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
+
+    singleJobSpan.setAttribute('job.state.end', endState);
+
+    if (startState === endState) {
       logger.info({ msg: 'no diffs were found on this job, exiting gracefully', startState, endState });
       await processExitSafely(ExitCodes.SUCCESS);
     }
 
-    logger.info({ msg: 'diff was created, starting the upload', state: newSequenceNumber });
+    logger.info({ msg: 'diff was created, starting the upload of end state diff', startState, endState });
 
-    singleJobSpan.setAttribute('job.state.end', newSequenceNumber);
+    await tracer.startActiveSpan('upload-diff', undefined, contextAPI.active(), async (span) => await uploadDiff(endState, span));
 
-    await tracer.startActiveSpan('upload-diff', undefined, contextAPI.active(), async (span) => await uploadDiff(newSequenceNumber, span));
+    logger.info({ msg: 'finished the upload of the diff, uploading end state file', startState, endState });
 
-    logger.info({ msg: 'finished the upload of the diff, uploading state file', state: endState });
-
-    const endState = await promisifySpan('fs.read', { 'file.path': OSMDBT_STATE_PATH, 'file.name': STATE_FILE }, contextAPI.active(), () =>
+    const endStateFileBuffer = await promisifySpan('fs.read', { 'file.path': OSMDBT_STATE_PATH, 'file.name': STATE_FILE }, contextAPI.active(), () =>
       fsPromises.readFile(OSMDBT_STATE_PATH)
     );
-    await putObjectWrapper(STATE_FILE, endState);
+    await putObjectWrapper(STATE_FILE, endStateFileBuffer);
 
-    logger.info({ msg: 'finished the upload of the end state file, commiting changes', endState });
+    logger.info({ msg: 'finished the upload of the end state file, commiting changes', startState, endState });
 
     try {
       await tracer.startActiveSpan('commit-changes', undefined, contextAPI.active(), commitChanges);
     } catch (error) {
-      logger.error({ err: error, msg: 'an error accord during commiting changes for state', state: endState });
+      logger.error({ err: error, msg: 'an error accord during commiting changes for end state, rollbacking to start state', startState, endState });
 
       await tracer.startActiveSpan('rollback', undefined, contextAPI.active(), rollback);
       singleJobSpan.setAttribute('job.state.end', startState);
