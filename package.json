@@ -1,6 +1,6 @@
 {
   "name": "osmdbt-wrapper",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "a wrapper for osmdbt",
   "main": "./src/index.mjs",
   "scripts": {
