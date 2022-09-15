@@ -2,7 +2,7 @@
 import 'zx/globals';
 import fsPromises from 'fs/promises';
 import config from 'config';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand, HeadObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import mime from 'mime-types';
 import jsLogger from '@map-colonies/js-logger';
 import { Tracing, getOtelMixin } from '@map-colonies/telemetry';
@@ -20,6 +20,8 @@ import {
   OSMDBT_BIN_PATH,
   OSMDBT_DONE_LOG_PREFIX,
   DIFF_FILE_EXTENTION,
+  S3_NOT_FOUND_ERROR_NAME,
+  S3_LOCK_FILE_NAME,
 } from './constants.mjs';
 
 $.verbose = false;
@@ -48,6 +50,7 @@ const baseOsmdbtSnapAttributes = {
 const logger = jsLogger.default({ ...telemetryConfig.logger, mixin: getOtelMixin() });
 let jobExitCode = ExitCodes.SUCCESS;
 let filesUploaded = 0;
+let isS3Locked = false;
 let s3Client;
 
 const promisifySpan = async (spanName, spanAttributes, context, fn) => {
@@ -133,6 +136,51 @@ const initializeS3Client = () => {
   });
 };
 
+const lockS3 = async (span) => {
+  const bucketName = objectStorageConfig.bucketName;
+
+  logger.info({ msg: 'locking s3 bucket', bucketName, lockFileName: S3_LOCK_FILE_NAME });
+
+  try {
+    const headObjectResponse = await headObjectWrapper(S3_LOCK_FILE_NAME);
+
+    if (headObjectResponse !== undefined) {
+      logger.error({ msg: 's3 bucket is locked', bucketName, lockFileName: S3_LOCK_FILE_NAME });
+      const error = new ErrorWithExitCode('s3 bucket is locked', ExitCodes.S3_LOCKED_ERROR);
+      throw error;
+    }
+
+    const lockfileBuffer = Buffer.alloc(1, 0);
+
+    await putObjectWrapper(S3_LOCK_FILE_NAME, lockfileBuffer, 'public-read');
+    isS3Locked = true;
+  } catch (error) {
+    handleSpanOnError(span, error);
+    throw error;
+  }
+
+  handleSpanOnSuccess(span);
+}
+
+const unlockS3 = async (span) => {
+  const bucketName = objectStorageConfig.bucketName;
+
+  logger.info({ msg: 'unlocking s3 bucket', bucketName, lockFileName: S3_LOCK_FILE_NAME });
+
+  try {
+    await deleteObjectWrapper(S3_LOCK_FILE_NAME);
+    isS3Locked = false;
+  } catch (error) {
+    handleSpanOnError(span, error);
+    logger.fatal({ err: error, msg: 'failed to unlock s3, unlock it manually', lockFileName: S3_LOCK_FILE_NAME, exitCode: error.exitCode });
+
+    jobExitCode = ExitCodes.S3_ERROR;
+    return;
+  }
+
+  handleSpanOnSuccess(span);
+}
+
 const getStateFileFromS3ToFs = async (span) => {
   logger.debug({ msg: 'getting state file from s3' });
   let stateFileStream;
@@ -212,6 +260,41 @@ const uploadDiff = async (sequenceNumber, span) => {
   handleSpanOnSuccess(span);
 };
 
+const headObjectWrapper = async (key) => {
+  let span;
+  const bucketName = objectStorageConfig.bucketName;
+
+  logger.debug({ msg: 'heading object from s3', bucketName, key });
+
+  try {
+    span = tracer.startSpan(
+      's3.headObject',
+      {
+        kind: SpanKind.CLIENT,
+        attributes: { ...baseS3SnapAttributes, [SemanticAttributes.RPC_METHOD]: 'HeadObject', 's3.key': key },
+      },
+      contextAPI.active()
+    );
+    const headObjectResponse = await s3Client.send(new HeadObjectCommand({ Bucket: bucketName, Key: key }));
+    handleSpanOnSuccess(span);
+    return headObjectResponse;
+  } catch (error) {
+    if (error.name === S3_NOT_FOUND_ERROR_NAME) {
+      handleSpanOnSuccess(span);
+      return undefined;
+    }
+
+    logger.error({ err: error, msg: 'failed heading object from bucket', bucketName, key });
+
+    handleSpanOnError(span, error);
+
+    throw new ErrorWithExitCode(
+      `failed heading object key: ${key} from bucket: ${bucketName} received the following error: ${error}`,
+      ExitCodes.S3_ERROR
+    );
+  }
+};
+
 const getObjectWrapper = async (key) => {
   let span;
   const bucketName = objectStorageConfig.bucketName;
@@ -237,19 +320,20 @@ const getObjectWrapper = async (key) => {
 
     throw new ErrorWithExitCode(
       `failed getting key: ${key} from bucket: ${bucketName} received the following error: ${error}`,
-      ExitCodes.STATE_FETCH_FAILURE_ERROR
+      ExitCodes.S3_ERROR
     );
   }
 };
 
-const putObjectWrapper = async (key, body) => {
+const putObjectWrapper = async (key, body, overrideDefaultAcl = undefined) => {
   const { bucketName, acl } = objectStorageConfig;
 
   const possibleContentType = mime.contentType(key.split('/').pop());
   const contentType = possibleContentType ? possibleContentType : undefined;
+  const objectAcl = overrideDefaultAcl ? overrideDefaultAcl : acl;
   let span;
 
-  logger.debug({ msg: 'putting key in bucket', key, bucketName, acl, contentType });
+  logger.debug({ msg: 'putting key in bucket', key, bucketName, acl: objectAcl, contentType });
 
   try {
     span = tracer.startSpan(
@@ -261,22 +345,51 @@ const putObjectWrapper = async (key, body) => {
           [SemanticAttributes.RPC_METHOD]: 'PutObject',
           's3.key': key,
           's3.content.type': contentType ?? 'unknown',
-          's3.acl': acl,
+          's3.acl': objectAcl,
         },
       },
       contextAPI.active()
     );
 
-    await s3Client.send(new PutObjectCommand({ Bucket: bucketName, Key: key, Body: body, ContentType: contentType, ACL: acl }));
+    await s3Client.send(new PutObjectCommand({ Bucket: bucketName, Key: key, Body: body, ContentType: contentType, ACL: objectAcl }));
     handleSpanOnSuccess(span);
     filesUploaded++;
   } catch (error) {
-    logger.error({ err: error, msg: 'failed putting key in bucket', acl, bucketName, key });
+    logger.error({ err: error, msg: 'failed putting key in bucket', acl: objectAcl, bucketName, key });
 
     handleSpanOnError(span, error);
     throw new ErrorWithExitCode(
       `failed putting key: ${key} into bucket: ${bucketName} received the following error: ${error}`,
-      ExitCodes.PUT_OBJECT_ERROR
+      ExitCodes.S3_ERROR
+    );
+  }
+};
+
+const deleteObjectWrapper = async (key) => {
+  let span;
+  const bucketName = objectStorageConfig.bucketName;
+
+  logger.debug({ msg: 'deleting object from s3', bucketName, key });
+
+  try {
+    span = tracer.startSpan(
+      's3.deleteObject',
+      {
+        kind: SpanKind.CLIENT,
+        attributes: { ...baseS3SnapAttributes, [SemanticAttributes.RPC_METHOD]: 'DeleteObject', 's3.key': key },
+      },
+      contextAPI.active()
+    );
+    await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }));
+    handleSpanOnSuccess(span);
+  } catch (error) {
+    logger.error({ err: error, msg: 'failed deleting key from bucket', bucketName, key });
+
+    handleSpanOnError(span, error);
+
+    throw new ErrorWithExitCode(
+      `failed getting key: ${key} from bucket: ${bucketName} received the following error: ${error}`,
+      ExitCodes.S3_ERROR
     );
   }
 };
@@ -339,7 +452,7 @@ const rollback = async (span) => {
     await putObjectWrapper(STATE_FILE, backupStateFileBuffer);
     handleSpanOnSuccess(span);
   } catch (error) {
-    logger.fatal({ msg: 'failed to rollback', err: error });
+    logger.fatal({ msg: 'failed to rollback, for safety reasons keeping the s3 bucket locked, unlock it manually', err: error });
 
     handleSpanOnError(span, error);
     await processExitSafely(ExitCodes.ROLLBACK_FAILURE_ERROR);
@@ -387,6 +500,8 @@ const main = async () => {
 
     s3Client = initializeS3Client();
 
+    await tracer.startActiveSpan('lock-s3', undefined, contextAPI.active(), lockS3);
+
     await tracer.startActiveSpan('get-start-state', undefined, contextAPI.active(), getStateFileFromS3ToFs);
     const startState = await tracer.startActiveSpan('fs.read', undefined, contextAPI.active(), getSequenceNumber);
 
@@ -414,6 +529,9 @@ const main = async () => {
 
     if (startState === endState) {
       logger.info({ msg: 'no diffs were found on this job, exiting gracefully', startState, endState });
+
+      await tracer.startActiveSpan('unlock-s3', undefined, contextAPI.active(), unlockS3);
+
       await processExitSafely(ExitCodes.SUCCESS);
     }
 
@@ -442,9 +560,13 @@ const main = async () => {
 
     logger.info({ msg: 'job completed successfully, exiting gracefully', startState, endState });
   } catch (error) {
-    logger.error({ err: error, msg: 'an error occurred exiting safely', exitCode: error.exitCode });
+    logger.error({ err: error, msg: 'an error occurred exiting safely' });
     jobExitCode = error.exitCode;
   } finally {
+    if (isS3Locked) {
+      await tracer.startActiveSpan('unlock-s3', undefined, contextAPI.active(), unlockS3);
+    }
+
     await processExitSafely(jobExitCode);
   }
 };
