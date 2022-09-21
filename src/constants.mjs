@@ -12,13 +12,16 @@ export const STATE_FILE = 'state.txt';
 export const OSMDBT_DONE_LOG_PREFIX = '.done';
 export const DIFF_FILE_EXTENTION = 'osc.gz';
 export const S3_REGION = 'us-east-1';
+export const S3_NOT_FOUND_ERROR_NAME = 'NotFound';
+export const S3_LOCK_FILE_NAME = 'lockfile';
+
 export const ExitCodes = {
   SUCCESS: 0,
   GENERAL_ERROR: 1,
   OSMDBT_ERROR: 100,
-  STATE_FETCH_FAILURE_ERROR: 101,
   INVALID_STATE_FILE_ERROR: 102,
-  PUT_OBJECT_ERROR: 103,
   ROLLBACK_FAILURE_ERROR: 104,
+  S3_ERROR: 105,
+  S3_LOCKED_ERROR: 106,
   TERMINATED: 130,
 };

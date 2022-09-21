@@ -5,7 +5,7 @@ The replication creation is determined by a `state.txt` file. to initialize the 
 
 if no changes were found on a job no replications would be uploaded and the state file will remain the same.
 
-Only one job can run at a time to prevent a race condition on the replication slot changes and for the replications to remain linear.
+Only one job can run at a time to prevent a race condition on the replication slot changes and for the replications to remain linear, Also to prevent state miss matches with `planet-dumper` dump creation a `lockfile` is put on the start of each job and is removed on job completion.
 
 ## Configuration
 
@@ -36,8 +36,8 @@ Only one job can run at a time to prevent a race condition on the replication sl
 | 0                | success                   | the program finished successfuly.                                               |
 | 1                | general error             | catchall for general errors.                                                    |
 | 100              | osmdbt error              | failure occoured while running an osmdbt command.                               |
-| 101              | state fetch error         | failure in fetching the state file from s3.                                     |
 | 102              | invalid state error       | state file located in s3 is invalid.                                            |
-| 103              | s3 upload error           | s3 upload failed.                                                               |
 | 104              | rollback error            | rolling back failed.                                                            |
+| 105              | s3 error                  | s3 operation errored                                                            |
+| 106              | s3 locked error           | s3 is locked                                                                    |
 | 130              | terminated                | the program was terminated by the user.                                         |
