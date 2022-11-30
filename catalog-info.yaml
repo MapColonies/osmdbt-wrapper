@@ -1,0 +1,19 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: osmdbt-wrapper
+  description: a wrapper around OSM change generation tool
+  links:
+    - url: https://github.com/openstreetmap/osmdbt
+      title: original repo
+  tags:
+    - wrapper
+    - typescript
+spec:
+  type: service
+  lifecycle: production
+  owner: vector-team
+  system: vector-ingestion
+  dependsOn:
+    - resource:default/osm-db
+    - resource:default/osm-changes
