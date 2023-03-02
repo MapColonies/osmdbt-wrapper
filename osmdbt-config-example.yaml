@@ -1,0 +1,12 @@
+---
+database:
+  host: 127.0.0.1
+  port: 5443
+  dbname: osm
+  user: postgres
+  password: G3CGoRjpbZ
+  replication_slot: replication_slot2
+log_dir: /tmp
+changes_dir: /tmp
+tmp_dir: /tmp
+run_dir: /tmp

@@ -8,4 +8,4 @@ then
   chmod 400 $POSTGRES_CERTIFICATES_PATH/*.key
 fi
 
-node ./src/index.mjs
+node ./index.js
