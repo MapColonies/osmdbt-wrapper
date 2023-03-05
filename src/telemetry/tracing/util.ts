@@ -4,19 +4,19 @@ import { ErrorWithExitCode } from '../../errors';
 export const TRACER_NAME = 'osmdbt-wrapper';
 
 export const promisifySpan = async <T>(spanName: string, spanAttributes: Attributes, context: Context, fn: () => Promise<T>): Promise<T> => {
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises, no-async-promise-executor
-  return new Promise(async (resolve, reject) => {
-    const tracer = traceAPI.getTracer(TRACER_NAME);
-    const span = tracer.startSpan(spanName, { attributes: spanAttributes }, context);
+  const tracer = traceAPI.getTracer(TRACER_NAME);
 
-    try {
-      const result = await fn();
-      handleSpanOnSuccess(span);
-      resolve(result);
-    } catch (error) {
-      handleSpanOnError(span, error);
-      reject(error);
-    }
+  return new Promise((resolve, reject) => {
+    const span = tracer.startSpan(spanName, { attributes: spanAttributes }, context);
+    fn()
+      .then((result) => {
+        handleSpanOnSuccess(span);
+        resolve(result);
+      })
+      .catch((error) => {
+        handleSpanOnError(span, error);
+        reject(error);
+      });
   });
 };
 

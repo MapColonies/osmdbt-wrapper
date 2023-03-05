@@ -1,22 +1,11 @@
-/* eslint-disable @typescript-eslint/naming-convention */ // span attributes and aws-sdk/client-s3 does not follow convention
 import { join } from 'path';
 import { readFile, readdir, rename, appendFile, writeFile, mkdir } from 'fs/promises';
 import config from 'config';
-import { contentType } from 'mime-types';
-import { Tracing, getOtelMixin } from '@map-colonies/telemetry';
-import { trace as traceAPI, context as contextAPI, SpanStatusCode, SpanKind, SpanStatus, Span, Attributes } from '@opentelemetry/api';
-import jsLogger, { LoggerOptions } from '@map-colonies/js-logger';
+import { Tracing } from '@map-colonies/telemetry';
+import { trace as traceAPI, context as contextAPI, SpanStatusCode, SpanKind, SpanStatus, Span } from '@opentelemetry/api';
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
 import execa from 'execa';
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  HeadObjectCommandOutput,
-  ObjectCannedACL,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3';
+import { ObjectCannedACL } from '@aws-sdk/client-s3';
 import {
   BACKUP_DIR_NAME,
   DIFF_FILE_EXTENTION,
@@ -26,42 +15,34 @@ import {
   OSMDBT_CONFIG_PATH,
   OSMDBT_DONE_LOG_PREFIX,
   S3_LOCK_FILE_NAME,
-  S3_NOT_FOUND_ERROR_NAME,
-  S3_REGION,
   STATE_FILE,
 } from './constants';
+import { logger } from './telemetry/logger';
 import { OsmdbtConfig, ObjectStorageConfig, TracingConfig } from './interfaces';
 import { ErrorWithExitCode } from './errors';
 import { getDiffDirPathComponents, streamToString } from './util';
 import { FsSpanName, FsAttributes } from './telemetry/tracing/fs';
 import { OsmdbtAttributes, OsmdbtSpanName } from './telemetry/tracing/osmdbt';
-import { S3Attributes, S3Method, S3SpanName } from './telemetry/tracing/s3';
 import { JobAttributes, ROOT_JOB_SPAN_NAME } from './telemetry/tracing/job';
 import { handleSpanOnSuccess, handleSpanOnError, promisifySpan, TRACER_NAME } from './telemetry/tracing/util';
+import { deleteObjectWrapper, getObjectWrapper, headObjectWrapper, putObjectWrapper } from './s3';
 
 const tracing = new Tracing();
-
 tracing.start();
 const tracer = traceAPI.getTracer(TRACER_NAME);
 const rootJobSpan = tracer.startSpan(ROOT_JOB_SPAN_NAME, { attributes: { [JobAttributes.JOB_ROLLBACK]: false } });
 
 const objectStorageConfig = config.get<ObjectStorageConfig>('objectStorage');
 const tracingConfig = config.get<TracingConfig>('telemetry.tracing');
-const loggerConfig = config.get<LoggerOptions>('telemetry.logger');
 const osmdbtConfig = config.get<OsmdbtConfig>('osmdbt');
 
 const OSMDBT_STATE_PATH = join(osmdbtConfig.changesDir, STATE_FILE);
 const OSMDBT_STATE_BACKUP_PATH = join(osmdbtConfig.changesDir, BACKUP_DIR_NAME, STATE_FILE);
 const GLOBAL_OSMDBT_ARGS = osmdbtConfig.verbose ? ['-c', OSMDBT_CONFIG_PATH] : ['-c', OSMDBT_CONFIG_PATH, '-q'];
 
-let baseS3SnapAttributes: Attributes;
-
-const logger = jsLogger({ ...loggerConfig, mixin: getOtelMixin() });
-
 let jobExitCode = ExitCodes.SUCCESS;
-let filesUploaded = 0;
 let isS3Locked = false;
-let s3Client: S3Client;
+let filesUploaded = 0;
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
@@ -115,34 +96,13 @@ const getSequenceNumber = async (span?: Span): Promise<string> => {
   return sequenceNumber;
 };
 
-// TODO: improve
-const initializeS3Client = (): S3Client => {
-  const { endpoint, bucketName, acl } = objectStorageConfig;
-  logger.info({ msg: 'initializing s3 client', endpoint, bucketName, acl });
-
-  baseS3SnapAttributes = {
-    [SemanticAttributes.RPC_SYSTEM]: 'aws.api',
-    [SemanticAttributes.RPC_SERVICE]: 'S3',
-    [SemanticAttributes.NET_TRANSPORT]: 'ip_tcp',
-    [SemanticAttributes.NET_PEER_NAME]: endpoint,
-    [S3Attributes.S3_AWS_REGION]: S3_REGION,
-    [S3Attributes.S3_BUCKET_NAME]: bucketName,
-  };
-
-  return new S3Client({
-    endpoint,
-    region: S3_REGION,
-    forcePathStyle: true,
-  });
-};
-
 const lockS3 = async (span?: Span): Promise<void> => {
   const bucketName = objectStorageConfig.bucketName;
 
   logger.info({ msg: 'locking s3 bucket', bucketName, lockFileName: S3_LOCK_FILE_NAME });
 
   try {
-    const headObjectResponse = await headObjectWrapper(S3_LOCK_FILE_NAME);
+    const headObjectResponse = await headObjectWrapper(objectStorageConfig.bucketName, S3_LOCK_FILE_NAME);
 
     if (headObjectResponse !== undefined) {
       logger.error({ msg: 's3 bucket is locked', bucketName, lockFileName: S3_LOCK_FILE_NAME });
@@ -152,7 +112,8 @@ const lockS3 = async (span?: Span): Promise<void> => {
 
     const lockfileBuffer = Buffer.alloc(1, 0);
 
-    await putObjectWrapper(S3_LOCK_FILE_NAME, lockfileBuffer, ObjectCannedACL.public_read);
+    await putObjectWrapper(objectStorageConfig.bucketName, S3_LOCK_FILE_NAME, lockfileBuffer, ObjectCannedACL.public_read);
+    filesUploaded++;
     isS3Locked = true;
   } catch (error) {
     handleSpanOnError(span, error);
@@ -168,7 +129,7 @@ const unlockS3 = async (span?: Span): Promise<void> => {
   logger.info({ msg: 'unlocking s3 bucket', bucketName, lockFileName: S3_LOCK_FILE_NAME });
 
   try {
-    await deleteObjectWrapper(S3_LOCK_FILE_NAME);
+    await deleteObjectWrapper(objectStorageConfig.bucketName, S3_LOCK_FILE_NAME);
     isS3Locked = false;
   } catch (error) {
     handleSpanOnError(span, error);
@@ -185,7 +146,7 @@ const getStateFileFromS3ToFs = async (span?: Span): Promise<void> => {
   let stateFileStream;
 
   try {
-    stateFileStream = await getObjectWrapper(STATE_FILE);
+    stateFileStream = await getObjectWrapper(objectStorageConfig.bucketName, STATE_FILE);
   } catch (error) {
     handleSpanOnError(span, error);
     throw error;
@@ -260,9 +221,11 @@ const uploadDiff = async (sequenceNumber: string, span?: Span): Promise<void> =>
     const uploadContent = await promisifySpan(FsSpanName.FS_READ, { [FsAttributes.FILE_PATH]: localPath }, contextAPI.active(), async () =>
       readFile(localPath)
     );
-    await putObjectWrapper(filePath, uploadContent);
+    await putObjectWrapper(objectStorageConfig.bucketName, filePath, uploadContent);
+    filesUploaded++;
   });
 
+  // eslint-disable-next-line @typescript-eslint/naming-convention
   span?.setAttributes({ 'upload.count': uploads.length, 'upload.state': sequenceNumber });
 
   try {
@@ -272,140 +235,6 @@ const uploadDiff = async (sequenceNumber: string, span?: Span): Promise<void> =>
     throw error;
   }
   handleSpanOnSuccess(span);
-};
-
-const headObjectWrapper = async (key: string): Promise<HeadObjectCommandOutput | undefined> => {
-  let span;
-  const bucketName = objectStorageConfig.bucketName;
-
-  logger.debug({ msg: 'heading object from s3', bucketName, key });
-
-  try {
-    span = tracer.startSpan(
-      S3SpanName.HEAD_OBJECT,
-      {
-        kind: SpanKind.CLIENT,
-        attributes: { ...baseS3SnapAttributes, [SemanticAttributes.RPC_METHOD]: S3Method.HEAD_OBJECT, [S3Attributes.S3_KEY]: key },
-      },
-      contextAPI.active()
-    );
-    const headObjectResponse = await s3Client.send(new HeadObjectCommand({ Bucket: bucketName, Key: key }));
-    handleSpanOnSuccess(span);
-    return headObjectResponse;
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.name === S3_NOT_FOUND_ERROR_NAME) {
-        handleSpanOnSuccess(span);
-        return undefined;
-      }
-    }
-
-    logger.error({ err: error, msg: 'failed heading object from bucket', bucketName, key });
-
-    handleSpanOnError(span, error);
-
-    throw new ErrorWithExitCode(
-      error instanceof Error ? error.message : `failed heading object key: ${key} from bucket: ${bucketName}`,
-      ExitCodes.S3_ERROR
-    );
-  }
-};
-
-const getObjectWrapper = async (key: string): Promise<NodeJS.ReadStream> => {
-  let span;
-  const bucketName = objectStorageConfig.bucketName;
-
-  logger.debug({ msg: 'getting object from s3', bucketName, key });
-
-  try {
-    span = tracer.startSpan(
-      S3SpanName.GET_OBJECT,
-      {
-        kind: SpanKind.CLIENT,
-        attributes: { ...baseS3SnapAttributes, [SemanticAttributes.RPC_METHOD]: S3Method.GET_OBJECT, [S3Attributes.S3_KEY]: key },
-      },
-      contextAPI.active()
-    );
-    const commandOutput = await s3Client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }));
-    handleSpanOnSuccess(span);
-    return commandOutput.Body as unknown as NodeJS.ReadStream;
-  } catch (error) {
-    logger.error({ err: error, msg: 'failed getting key from bucket', bucketName, key });
-
-    handleSpanOnError(span, error);
-
-    throw new ErrorWithExitCode(error instanceof Error ? error.message : `failed getting key: ${key} from bucket: ${bucketName}`, ExitCodes.S3_ERROR);
-  }
-};
-
-const putObjectWrapper = async (key: string, body: Buffer, overrideDefaultAcl?: ObjectCannedACL): Promise<void> => {
-  const { bucketName, acl } = objectStorageConfig;
-
-  let evaluatedContentType: string | undefined = undefined;
-  const fetchedTypeFromKey = key.split('/').pop();
-  if (fetchedTypeFromKey !== undefined) {
-    const type = contentType(fetchedTypeFromKey);
-    evaluatedContentType = type !== false ? type : undefined;
-  }
-
-  let span;
-
-  logger.debug({ msg: 'putting key in bucket', key, bucketName, acl: overrideDefaultAcl ?? acl, contentType: evaluatedContentType });
-
-  try {
-    span = tracer.startSpan(
-      S3SpanName.GET_OBJECT,
-      {
-        kind: SpanKind.CLIENT,
-        attributes: {
-          ...baseS3SnapAttributes,
-          [SemanticAttributes.RPC_METHOD]: S3Method.GET_OBJECT,
-          [S3Attributes.S3_KEY]: key,
-          [S3Attributes.S3_CONTENT_TYPE]: evaluatedContentType ?? 'unknown',
-          [S3Attributes.S3_ACL]: overrideDefaultAcl ?? acl,
-        },
-      },
-      contextAPI.active()
-    );
-
-    await s3Client.send(
-      new PutObjectCommand({ Bucket: bucketName, Key: key, Body: body, ContentType: evaluatedContentType, ACL: overrideDefaultAcl ?? acl })
-    );
-    handleSpanOnSuccess(span);
-    filesUploaded++;
-  } catch (error) {
-    logger.error({ err: error, msg: 'failed putting key in bucket', acl: overrideDefaultAcl ?? acl, bucketName, key });
-
-    handleSpanOnError(span, error);
-
-    throw new ErrorWithExitCode(error instanceof Error ? error.message : `failed putting key: ${key} into bucket: ${bucketName}`, ExitCodes.S3_ERROR);
-  }
-};
-
-const deleteObjectWrapper = async (key: string): Promise<void> => {
-  let span;
-  const bucketName = objectStorageConfig.bucketName;
-
-  logger.debug({ msg: 'deleting object from s3', bucketName, key });
-
-  try {
-    span = tracer.startSpan(
-      S3SpanName.DELETE_OBJECT,
-      {
-        kind: SpanKind.CLIENT,
-        attributes: { ...baseS3SnapAttributes, [SemanticAttributes.RPC_METHOD]: S3Method.DELETE_OBJECT, [S3Attributes.S3_KEY]: key },
-      },
-      contextAPI.active()
-    );
-    await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }));
-    handleSpanOnSuccess(span);
-  } catch (error) {
-    logger.error({ err: error, msg: 'failed deleting key from bucket', bucketName, key });
-
-    handleSpanOnError(span, error);
-
-    throw new ErrorWithExitCode(error instanceof Error ? error.message : `failed getting key: ${key} from bucket: ${bucketName}`, ExitCodes.S3_ERROR);
-  }
 };
 
 const commitChanges = async (span?: Span): Promise<void> => {
@@ -467,7 +296,8 @@ const rollback = async (span?: Span): Promise<void> => {
       contextAPI.active(),
       async () => readFile(OSMDBT_STATE_BACKUP_PATH)
     );
-    await putObjectWrapper(STATE_FILE, backupStateFileBuffer);
+    await putObjectWrapper(objectStorageConfig.bucketName, STATE_FILE, backupStateFileBuffer);
+    filesUploaded++;
     handleSpanOnSuccess(span);
   } catch (error) {
     logger.fatal({ msg: 'failed to rollback, for safety reasons keeping the s3 bucket locked, unlock it manually', err: error });
@@ -491,10 +321,9 @@ const cleanup = async (exitCode: number): Promise<void> => {
   const rootSpanStatus: SpanStatus = { code: SpanStatusCode.UNSET };
   rootSpanStatus.code = exitCode == (ExitCodes.SUCCESS || ExitCodes.TERMINATED) ? SpanStatusCode.OK : SpanStatusCode.ERROR;
   rootJobSpan.setAttributes({ [JobAttributes.JOB_EXITCODE]: exitCode, [JobAttributes.JOB_UPLOAD_COUNT]: filesUploaded });
+
   rootJobSpan.setStatus(rootSpanStatus);
   rootJobSpan.end();
-
-  (s3Client as S3Client | undefined)?.destroy();
 
   await tracing.stop();
 };
@@ -504,8 +333,6 @@ const main = async (): Promise<void> => {
 
   try {
     await tracer.startActiveSpan('prepare-environment', {}, contextAPI.active(), prepareEnvironment);
-
-    s3Client = initializeS3Client();
 
     await tracer.startActiveSpan('lock-s3', {}, contextAPI.active(), lockS3);
 
@@ -548,7 +375,8 @@ const main = async (): Promise<void> => {
       contextAPI.active(),
       async () => readFile(OSMDBT_STATE_PATH)
     );
-    await putObjectWrapper(STATE_FILE, endStateFileBuffer);
+    await putObjectWrapper(objectStorageConfig.bucketName, STATE_FILE, endStateFileBuffer);
+    filesUploaded++;
 
     logger.info({ msg: 'finished the upload of the end state file, commiting changes', startState, endState });
 

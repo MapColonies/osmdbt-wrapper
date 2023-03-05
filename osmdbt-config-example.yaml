@@ -5,7 +5,7 @@ database:
   dbname: osm
   user: postgres
   password: G3CGoRjpbZ
-  replication_slot: replication_slot2
+  replication_slot: replication_slot
 log_dir: /tmp
 changes_dir: /tmp
 tmp_dir: /tmp
