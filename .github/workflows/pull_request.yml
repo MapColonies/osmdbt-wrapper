@@ -1,0 +1,53 @@
+name: pull_request
+
+on: [pull_request]
+
+jobs:
+  eslint:
+    name: Run TS Project eslint
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node: [16.x, 18.x]
+
+    steps:
+      - name: Check out TS Project Git repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install TS Project dependencies
+        run: npm install
+
+      - name: Run TS Project linters
+        uses: wearerequired/lint-action@v1
+        with:
+          github_token: ${{ secrets.github_token }}
+          # Enable linters
+          eslint: true
+          prettier: true
+          eslint_extensions: ts
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Run Snyk to check for vulnerabilities
+      uses: snyk/actions/node@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  build_image:
+    name: Build Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v2
+
+      - name: build Docker image
+        run: docker build -t test-build:latest .
