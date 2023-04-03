@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.0.0](https://github.com/MapColonies/osmdbt-wrapper/compare/v1.0.2...v2.0.0) (2023-04-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* typescript implementation (#10)
+
+### Features
+
+* s3 bucket locking during job run ([#7](https://github.com/MapColonies/osmdbt-wrapper/issues/7)) ([829f6d5](https://github.com/MapColonies/osmdbt-wrapper/commit/829f6d530b72896d636a6c0c3abddfcb5a5cfd83))
+
+
+* typescript implementation ([#10](https://github.com/MapColonies/osmdbt-wrapper/issues/10)) ([0bd75cd](https://github.com/MapColonies/osmdbt-wrapper/commit/0bd75cd0a098f9b617d9cbe82d5a40f2c22e4b45))
+
 ### [1.0.2](https://github.com/MapColonies/osmdbt-wrapper/compare/v1.0.1...v1.0.2) (2022-08-14)
 
 
