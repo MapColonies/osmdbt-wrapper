@@ -49,7 +49,7 @@ let filesUploaded = 0;
 let mediator: StatefulMediator | undefined;
 
 if (arstotzkaConfig.enabled) {
-  mediator = new StatefulMediator({...arstotzkaConfig.mediator, serviceId: arstotzkaConfig.serviceId, logger });
+  mediator = new StatefulMediator({ ...arstotzkaConfig.mediator, serviceId: arstotzkaConfig.serviceId, logger });
 }
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
