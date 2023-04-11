@@ -1,6 +1,8 @@
 import { join } from 'path';
 import { readFile, readdir, rename, appendFile, writeFile, mkdir } from 'fs/promises';
 import config from 'config';
+import { ActionStatus } from '@map-colonies/arstotzka-common';
+import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
 import { Tracing } from '@map-colonies/telemetry';
 import { trace as traceAPI, context as contextAPI, SpanStatusCode, SpanKind, SpanStatus, Span } from '@opentelemetry/api';
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
@@ -18,7 +20,7 @@ import {
   STATE_FILE,
 } from './constants';
 import { logger } from './telemetry/logger';
-import { OsmdbtConfig, ObjectStorageConfig, TracingConfig } from './interfaces';
+import { OsmdbtConfig, ObjectStorageConfig, TracingConfig, ArstotzkaConfig } from './interfaces';
 import { ErrorWithExitCode } from './errors';
 import { getDiffDirPathComponents, streamToString } from './util';
 import { FsSpanName, FsAttributes } from './telemetry/tracing/fs';
@@ -35,6 +37,7 @@ const rootJobSpan = tracer.startSpan(ROOT_JOB_SPAN_NAME, { attributes: { [JobAtt
 const objectStorageConfig = config.get<ObjectStorageConfig>('objectStorage');
 const tracingConfig = config.get<TracingConfig>('telemetry.tracing');
 const osmdbtConfig = config.get<OsmdbtConfig>('osmdbt');
+const arstotzkaConfig = config.get<ArstotzkaConfig>('arstotzka');
 
 const OSMDBT_STATE_PATH = join(osmdbtConfig.changesDir, STATE_FILE);
 const OSMDBT_STATE_BACKUP_PATH = join(osmdbtConfig.changesDir, BACKUP_DIR_NAME, STATE_FILE);
@@ -43,6 +46,11 @@ const GLOBAL_OSMDBT_ARGS = osmdbtConfig.verbose ? ['-c', OSMDBT_CONFIG_PATH] : [
 let jobExitCode = ExitCodes.SUCCESS;
 let isS3Locked = false;
 let filesUploaded = 0;
+let mediator: StatefulMediator | undefined;
+
+if (arstotzkaConfig.enabled) {
+  mediator = new StatefulMediator({...arstotzkaConfig.mediator, serviceId: arstotzkaConfig.serviceId, logger });
+}
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
@@ -332,6 +340,8 @@ const main = async (): Promise<void> => {
   logger.info({ msg: 'new job has started' });
 
   try {
+    await mediator?.reserveAccess();
+
     await tracer.startActiveSpan('prepare-environment', {}, contextAPI.active(), prepareEnvironment);
 
     await tracer.startActiveSpan('lock-s3', {}, contextAPI.active(), lockS3);
@@ -358,10 +368,16 @@ const main = async (): Promise<void> => {
     if (startState === endState) {
       logger.info({ msg: 'no diffs were found on this job, exiting gracefully', startState, endState });
 
+      await mediator?.removeLock();
+
       await tracer.startActiveSpan('unlock-s3', {}, contextAPI.active(), unlockS3);
 
       await processExitSafely(ExitCodes.SUCCESS);
     }
+
+    await mediator?.createAction({ state: +endState });
+
+    await mediator?.removeLock();
 
     logger.info({ msg: 'diff was created, starting the upload of end state diff', startState, endState });
 
@@ -390,12 +406,16 @@ const main = async (): Promise<void> => {
       throw error;
     }
 
+    await mediator?.updateAction({ status: ActionStatus.COMPLETED });
+
     logger.info({ msg: 'job completed successfully, exiting gracefully', startState, endState });
   } catch (error) {
     logger.error({ err: error, msg: 'an error occurred exiting safely' });
     if (error instanceof ErrorWithExitCode) {
       jobExitCode = error.exitCode;
     }
+
+    await mediator?.updateAction({ status: ActionStatus.FAILED, metadata: { error } });
   } finally {
     if (isS3Locked) {
       await tracer.startActiveSpan('unlock-s3', {}, contextAPI.active(), unlockS3);
