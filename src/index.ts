@@ -413,6 +413,8 @@ const main = async (): Promise<void> => {
     logger.error({ err: error, msg: 'an error occurred exiting safely' });
     if (error instanceof ErrorWithExitCode) {
       jobExitCode = error.exitCode;
+    } else {
+      jobExitCode = ExitCodes.GENERAL_ERROR;
     }
 
     await mediator?.updateAction({ status: ActionStatus.FAILED, metadata: { error } });

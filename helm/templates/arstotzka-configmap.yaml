@@ -1,0 +1,23 @@
+{{- $releaseName := .Release.Name -}}
+{{- $chartName := include "osmdbt-wrapper.name" . -}}
+{{- if .Values.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $releaseName }}-{{ $chartName }}-arstotzka-configmap
+data:
+  {{- with .Values.arstotzka }}
+  ARSTOTZKA_ENABLED: {{ .enabled | quote }}
+  {{- if .enabled }}
+  ARSTOTZKA_SERVICE_ID: {{ .serviceId | quote }}
+  MEDIATOR_TIMEOUT: {{ .mediator.timeout | quote }}
+  MEDIATOR_ENABLE_RETRY_STRATEGY: {{ .mediator.retryStrategy.enabled | quote }}
+  {{- if .mediator.retryStrategy.enabled }}
+  MEDIATOR_RETRY_STRATEGY_RETRIES: {{ .mediator.retryStrategy.retries | quote }}
+  MEDIATOR_RETRY_STRATEGY_SHOULD_RESET_TIMEOUT: {{ .mediator.retryStrategy.shouldResetTimeout | default false | quote }}
+  MEDIATOR_RETRY_STRATEGY_IS_EXPONENTIAL: {{ .mediator.retryStrategy.isExponential | default false | quote }}
+  MEDIATOR_RETRY_STRATEGY_DELAY: {{ .mediator.retryStrategy.delay | quote }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end -}}

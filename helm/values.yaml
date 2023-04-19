@@ -62,3 +62,16 @@ osmdbt:
   replicationSlotName: replication_slot_name
   getLogMaxChanges: 50000
   # verbose: true
+
+arstotzka:
+  enabled: false
+  serviceId: id
+  networkCM: arstotzka-network-configmap
+  mediator:
+    timeout: 10000
+    retryStrategy:
+      enabled: false
+    #   retries: 3
+    #   shouldResetTimeout: false
+    #   isExponential: false
+    #   delay: 100
