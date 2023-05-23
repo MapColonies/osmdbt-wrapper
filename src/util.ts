@@ -17,6 +17,7 @@ export const getDiffDirPathComponents = (sequenceNumberString: string): string[]
   const state = sequenceNumberInt % DIFF_STATE_FILE_MODULO;
 
   return [top, bottom, state].map((component) => {
-    return component.toString().padStart(SEQUENCE_NUMBER_COMPONENT_LENGTH, '0');
+    const floored = Math.floor(component);
+    return floored.toString().padStart(SEQUENCE_NUMBER_COMPONENT_LENGTH, '0');
   });
 };
