@@ -229,7 +229,7 @@ const uploadDiff = async (sequenceNumber: string, span?: Span): Promise<void> =>
     const uploadContent = await promisifySpan(FsSpanName.FS_READ, { [FsAttributes.FILE_PATH]: localPath }, contextAPI.active(), async () =>
       readFile(localPath)
     );
-    await putObjectWrapper(objectStorageConfig.bucketName, filePath, uploadContent);
+    await putObjectWrapper(objectStorageConfig.bucketName, filePath, uploadContent, objectStorageConfig.acl);
     filesUploaded++;
   });
 
@@ -304,7 +304,7 @@ const rollback = async (span?: Span): Promise<void> => {
       contextAPI.active(),
       async () => readFile(OSMDBT_STATE_BACKUP_PATH)
     );
-    await putObjectWrapper(objectStorageConfig.bucketName, STATE_FILE, backupStateFileBuffer);
+    await putObjectWrapper(objectStorageConfig.bucketName, STATE_FILE, backupStateFileBuffer, objectStorageConfig.acl);
     filesUploaded++;
     handleSpanOnSuccess(span);
   } catch (error) {
@@ -391,7 +391,8 @@ const main = async (): Promise<void> => {
       contextAPI.active(),
       async () => readFile(OSMDBT_STATE_PATH)
     );
-    await putObjectWrapper(objectStorageConfig.bucketName, STATE_FILE, endStateFileBuffer);
+    await putObjectWrapper(objectStorageConfig.bucketName, STATE_FILE, endStateFileBuffer, objectStorageConfig.acl);
+
     filesUploaded++;
 
     logger.info({ msg: 'finished the upload of the end state file, commiting changes', startState, endState });
