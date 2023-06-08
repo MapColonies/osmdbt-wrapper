@@ -48,6 +48,12 @@ spec:
             envFrom:
             - configMapRef:
                 name: {{ $releaseName }}-{{ $chartName }}-configmap
+            - configMapRef:
+                name: {{ $releaseName }}-{{ $chartName }}-arstotzka-configmap
+            {{- if and .Values.arstotzka.enabled .Values.arstotzka.networkCM }}
+            - configMapRef:
+                name: {{ .Values.arstotzka.networkCM }}
+            {{- end }}
             - secretRef:
                 name: {{ $releaseName }}-{{ $chartName }}-secret
             {{- if .Values.resources.enabled }}

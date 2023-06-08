@@ -37,5 +37,46 @@
     "acl": "OBJECT_STORAGE_ACL",
     "accessKey": "AWS_ACCESS_KEY_ID",
     "secretKey": "AWS_SECRET_ACCESS_KEY"
+  },
+  "arstotzka": {
+    "enabled": {
+      "__name": "ARSTOTZKA_ENABLED",
+      "__format": "boolean"
+    },
+    "serviceId": "ARSTOTZKA_SERVICE_ID",
+    "mediator": {
+      "timeout": {
+        "__name": "MEDIATOR_TIMEOUT",
+        "__format": "number"
+      },
+      "enableRetryStrategy": {
+        "__name": "MEDIATOR_ENABLE_RETRY_STRATEGY",
+        "__format": "boolean"
+      },
+      "retryStrategy": {
+        "retries": {
+          "__name": "MEDIATOR_RETRY_STRATEGY_RETRIES",
+          "__format": "number"
+        },
+        "shouldResetTimeout": {
+          "__name": "MEDIATOR_RETRY_STRATEGY_SHOULD_RESET_TIMEOUT",
+          "__format": "boolean"
+        },
+        "isExponential": {
+          "__name": "MEDIATOR_RETRY_STRATEGY_IS_EXPONENTIAL",
+          "__format": "boolean"
+        },
+        "delay": {
+          "__name": "MEDIATOR_RETRY_STRATEGY_DELAY",
+          "__format": "number"
+        }
+      },
+      "actiony": {
+        "url": "MEDIATOR_ACTIONY_URL"
+      },
+      "locky": {
+        "url": "MEDIATOR_LOCKY_URL"
+      }
+    }
   }
 }

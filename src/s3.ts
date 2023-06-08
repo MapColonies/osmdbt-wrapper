@@ -11,13 +11,13 @@ import {
 } from '@aws-sdk/client-s3';
 import { trace as traceAPI, context as contextAPI, Attributes, SpanKind } from '@opentelemetry/api';
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
-import { contentType } from 'mime-types';
 import { ExitCodes, S3_NOT_FOUND_ERROR_NAME, S3_REGION } from './constants';
 import { ErrorWithExitCode } from './errors';
 import { ObjectStorageConfig } from './interfaces';
 import { S3Attributes, S3Method, S3SpanName } from './telemetry/tracing/s3';
 import { handleSpanOnError, handleSpanOnSuccess, TRACER_NAME } from './telemetry/tracing/util';
 import { logger } from './telemetry/logger';
+import { evaluateContentType } from './util';
 
 let s3Client: S3Client | undefined;
 let baseS3SnapAttributes: Attributes;
@@ -114,16 +114,11 @@ export const getObjectWrapper = async (bucketName: string, key: string): Promise
 };
 
 export const putObjectWrapper = async (bucketName: string, key: string, body: Buffer, acl?: ObjectCannedACL): Promise<void> => {
-  let evaluatedContentType: string | undefined = undefined;
-  const fetchedTypeFromKey = key.split('/').pop();
-  if (fetchedTypeFromKey !== undefined) {
-    const type = contentType(fetchedTypeFromKey);
-    evaluatedContentType = type !== false ? type : undefined;
-  }
-
   let span;
 
-  logger.debug({ msg: 'putting key in bucket', key, bucketName, acl: acl, contentType: evaluatedContentType });
+  const contentType = evaluateContentType(key);
+
+  logger.debug({ msg: 'putting key in bucket', key, bucketName, acl, contentType });
 
   try {
     span = traceAPI.getTracer(TRACER_NAME).startSpan(
@@ -134,17 +129,17 @@ export const putObjectWrapper = async (bucketName: string, key: string, body: Bu
           ...baseS3SnapAttributes,
           [SemanticAttributes.RPC_METHOD]: S3Method.PUT_OBJECT,
           [S3Attributes.S3_KEY]: key,
-          [S3Attributes.S3_CONTENT_TYPE]: evaluatedContentType ?? 'unknown',
+          [S3Attributes.S3_CONTENT_TYPE]: contentType ?? 'unknown',
           [S3Attributes.S3_ACL]: acl,
         },
       },
       contextAPI.active()
     );
 
-    await getClient().send(new PutObjectCommand({ Bucket: bucketName, Key: key, Body: body, ContentType: evaluatedContentType, ACL: acl }));
+    await getClient().send(new PutObjectCommand({ Bucket: bucketName, Key: key, Body: body, ContentType: contentType, ACL: acl }));
     handleSpanOnSuccess(span);
   } catch (error) {
-    logger.error({ err: error, msg: 'failed putting key in bucket', acl: acl, bucketName, key });
+    logger.error({ err: error, msg: 'failed putting key in bucket', acl, bucketName, key });
 
     handleSpanOnError(span, error);
 

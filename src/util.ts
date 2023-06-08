@@ -1,3 +1,4 @@
+import { contentType } from 'mime-types';
 import { DIFF_TOP_DIR_DIVIDER, DIFF_BOTTOM_DIR_DIVIDER, DIFF_STATE_FILE_MODULO, SEQUENCE_NUMBER_COMPONENT_LENGTH } from './constants';
 
 export const streamToString = async (stream: NodeJS.ReadStream): Promise<string> => {
@@ -17,6 +18,20 @@ export const getDiffDirPathComponents = (sequenceNumberString: string): string[]
   const state = sequenceNumberInt % DIFF_STATE_FILE_MODULO;
 
   return [top, bottom, state].map((component) => {
-    return component.toString().padStart(SEQUENCE_NUMBER_COMPONENT_LENGTH, '0');
+    const floored = Math.floor(component);
+    return floored.toString().padStart(SEQUENCE_NUMBER_COMPONENT_LENGTH, '0');
   });
+};
+
+export const evaluateContentType = (key: string): string | undefined => {
+  let evaluatedContentType: string | undefined = undefined;
+
+  const fetchedTypeFromKey = key.split('/').pop();
+
+  if (fetchedTypeFromKey !== undefined) {
+    const type = contentType(fetchedTypeFromKey);
+    evaluatedContentType = type !== false ? type : undefined;
+  }
+
+  return evaluatedContentType;
 };
