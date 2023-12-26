@@ -9,6 +9,16 @@ export interface OsmdbtConfig {
   verbose: boolean;
 }
 
+export interface OsmiumConfig {
+  verbose: boolean;
+  progress: boolean;
+}
+
+export interface AppConfig {
+  shouldLockObjectStorage: boolean;
+  shouldCollectInfo: boolean;
+}
+
 export interface TracingConfig {
   enabled: boolean;
   url: string;

@@ -40,6 +40,16 @@ env:
     enabled: true
     url: 'http://localhost:55681/v1/trace'
     ratio: 1
+  osmdbt:
+    replicationSlotName: replication_slot_name
+    getLogMaxChanges: 50000
+    verbose: false
+  osmium:
+    verbose: false
+    progress: false
+  app:
+    shouldLockObjectStorage: false
+    shouldCollectInfo: false
 
 dbConfig:
   host: postgresHost
@@ -57,11 +67,6 @@ objectStrorageConfig:
   accessKey: accessKey
   secretKey: secretKey
   acl: public-read
-
-osmdbt:
-  replicationSlotName: replication_slot_name
-  getLogMaxChanges: 50000
-  # verbose: true
 
 arstotzka:
   enabled: false

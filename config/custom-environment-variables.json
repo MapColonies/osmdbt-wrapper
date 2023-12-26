@@ -18,6 +18,16 @@
       "url": "TELEMETRY_TRACING_URL"
     }
   },
+  "app": {
+    "shouldLockObjectStorage": {
+      "__name": "APP_SHOULD_LOCK_OBJECT_STORAGE",
+      "__format": "boolean"
+    },
+    "shouldCollectInfo": {
+      "__name": "APP_SHOULD_COLLECT_INFO",
+      "__format": "boolean"
+    }
+  },
   "osmdbt": {
     "changesDir": "OSMDBT_CHANGES_DIR",
     "logDir": "OSMDBT_LOG_DIR",
@@ -28,6 +38,16 @@
     },
     "verbose": {
       "__name": "OSMDBT_VERBOSE",
+      "__format": "boolean"
+    }
+  },
+  "osmium": {
+    "verbose": {
+      "__name": "OSMIUM_VERBOSE",
+      "__format": "boolean"
+    },
+    "progress": {
+      "__name": "OSMIUM_PROGRESS",
       "__format": "boolean"
     }
   },
