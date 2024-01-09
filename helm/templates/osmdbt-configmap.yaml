@@ -13,7 +13,7 @@ data:
       dbname: {{ .Values.dbConfig.database }}
       user: {{ .Values.dbConfig.username }}
       password: {{ .Values.dbConfig.password }}
-      replication_slot: {{ .Values.osmdbt.replicationSlotName }}
+      replication_slot: {{ .Values.env.osmdbt.replicationSlotName }}
     log_dir: /tmp/log
     changes_dir: /tmp
     tmp_dir: /tmp

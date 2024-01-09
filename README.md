@@ -36,6 +36,7 @@ Only one job can run at a time to prevent a race condition on the replication sl
 | 0                | success                   | the program finished successfuly.                                               |
 | 1                | general error             | catchall for general errors.                                                    |
 | 100              | osmdbt error              | failure occoured while running an osmdbt command.                               |
+| 101              | osmium error              | failure occoured while running an osmium command.                               |
 | 102              | invalid state error       | state file located in s3 is invalid.                                            |
 | 104              | rollback error            | rolling back failed.                                                            |
 | 105              | s3 error                  | s3 operation errored                                                            |

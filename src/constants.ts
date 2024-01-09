@@ -2,6 +2,8 @@ import { join } from 'path';
 
 const OSMDBT_BASE_PATH = '/osmdbt';
 
+export type Executable = 'osmdbt' | 'osmium';
+
 export enum OsmdbtCommand {
   GET_LOG = 'osmdbt-get-log',
   CREATE_DIFF = 'osmdbt-create-diff',
@@ -27,6 +29,7 @@ export const ExitCodes = {
   SUCCESS: 0,
   GENERAL_ERROR: 1,
   OSMDBT_ERROR: 100,
+  OSMIUM_ERROR: 101,
   INVALID_STATE_FILE_ERROR: 102,
   ROLLBACK_FAILURE_ERROR: 104,
   S3_ERROR: 105,

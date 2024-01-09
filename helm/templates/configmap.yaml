@@ -22,13 +22,23 @@ data:
   {{- else }}
   TELEMETRY_TRACING_ENABLED: "false"
   {{- end }}
+  {{ if .Values.env.app.shouldLockObjectStorage }}
+  APP_SHOULD_LOCK_OBJECT_STORAGE: "true"
+  {{- else }}
+  APP_SHOULD_LOCK_OBJECT_STORAGE: "false"
+  {{- end }}
+  {{ if .Values.env.app.shouldCollectInfo }}
+  APP_SHOULD_COLLECT_INFO: "true"
+  {{- else }}
+  APP_SHOULD_COLLECT_INFO: "false"
+  {{- end }}
   {{- with .Values.objectStrorageConfig }}
   OBJECT_STORAGE_ENDPOINT: {{ .endpoint | quote }}
   OBJECT_STORAGE_BUCKET_NAME: {{ .bucketName | quote }}
   OBJECT_STORAGE_ACL: {{ .acl | quote }}
   {{- end }}
-  OSMDBT_GET_LOG_MAX_CHANGES: {{ .Values.osmdbt.getLogMaxChanges | quote }}
-  {{- if .Values.osmdbt.verbose }}
+  OSMDBT_GET_LOG_MAX_CHANGES: {{ .Values.env.osmdbt.getLogMaxChanges | quote }}
+  {{- if .Values.env.osmdbt.verbose }}
   OSMDBT_VERBOSE: "true"
   {{- else }}
   OSMDBT_VERBOSE: "false"

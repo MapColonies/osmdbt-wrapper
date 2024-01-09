@@ -11,6 +11,7 @@ import { ObjectCannedACL } from '@aws-sdk/client-s3';
 import {
   BACKUP_DIR_NAME,
   DIFF_FILE_EXTENTION,
+  Executable,
   ExitCodes,
   OsmdbtCommand,
   OSMDBT_BIN_PATH,
@@ -20,11 +21,11 @@ import {
   STATE_FILE,
 } from './constants';
 import { logger } from './telemetry/logger';
-import { OsmdbtConfig, ObjectStorageConfig, TracingConfig, ArstotzkaConfig } from './interfaces';
+import { OsmdbtConfig, ObjectStorageConfig, TracingConfig, ArstotzkaConfig, AppConfig, OsmiumConfig } from './interfaces';
 import { ErrorWithExitCode } from './errors';
 import { getDiffDirPathComponents, streamToString } from './util';
 import { FsSpanName, FsAttributes } from './telemetry/tracing/fs';
-import { OsmdbtAttributes, OsmdbtSpanName } from './telemetry/tracing/osmdbt';
+import { ExecutableAttributes, CommandSpanName } from './telemetry/tracing/executable';
 import { JobAttributes, ROOT_JOB_SPAN_NAME } from './telemetry/tracing/job';
 import { handleSpanOnSuccess, handleSpanOnError, promisifySpan, TRACER_NAME } from './telemetry/tracing/util';
 import { deleteObjectWrapper, getObjectWrapper, headObjectWrapper, putObjectWrapper } from './s3';
@@ -37,11 +38,16 @@ const rootJobSpan = tracer.startSpan(ROOT_JOB_SPAN_NAME, { attributes: { [JobAtt
 const objectStorageConfig = config.get<ObjectStorageConfig>('objectStorage');
 const tracingConfig = config.get<TracingConfig>('telemetry.tracing');
 const osmdbtConfig = config.get<OsmdbtConfig>('osmdbt');
+const osmiumConfig = config.get<OsmiumConfig>('osmium');
 const arstotzkaConfig = config.get<ArstotzkaConfig>('arstotzka');
+const appConfig = config.get<AppConfig>('app');
 
 const OSMDBT_STATE_PATH = join(osmdbtConfig.changesDir, STATE_FILE);
 const OSMDBT_STATE_BACKUP_PATH = join(osmdbtConfig.changesDir, BACKUP_DIR_NAME, STATE_FILE);
 const GLOBAL_OSMDBT_ARGS = osmdbtConfig.verbose ? ['-c', OSMDBT_CONFIG_PATH] : ['-c', OSMDBT_CONFIG_PATH, '-q'];
+const GLOBAL_OSMIUM_ARGS = osmiumConfig.verbose
+  ? ['--verbose', osmiumConfig.progress ? '--progress' : '--no-progress']
+  : [osmiumConfig.progress ? '--progress' : '--no-progress'];
 
 let jobExitCode = ExitCodes.SUCCESS;
 let isS3Locked = false;
@@ -176,36 +182,52 @@ const getStateFileFromS3ToFs = async (span?: Span): Promise<void> => {
   handleSpanOnSuccess(span);
 };
 
-const runOsmdbtCommand = async (command: string, commandArgs: string[] = [], span?: Span): Promise<void> => {
-  const args = [...GLOBAL_OSMDBT_ARGS, ...commandArgs];
-  logger.info({ msg: 'executing command', executable: 'osmdbt', command, args });
+const runCommand = async (executable: Executable, command: string, commandArgs: string[] = [], span?: Span): Promise<string> => {
+  const executablePath = executable === 'osmdbt' ? join(OSMDBT_BIN_PATH, command) : executable;
+  const args = executable === 'osmdbt' ? commandArgs : [command, ...commandArgs];
+
+  logger.info({ msg: 'executing command', executable, command, args });
+
+  span?.setAttributes({
+    [SemanticAttributes.RPC_SYSTEM]: executable,
+    [ExecutableAttributes.EXECUTABLE_COMMAND]: command,
+    [ExecutableAttributes.EXECUTABLE_COMMAND_ARGS]: args.join(' '),
+  });
 
   try {
-    span?.setAttributes({
-      [SemanticAttributes.RPC_SYSTEM]: 'osmdbt',
-      [OsmdbtAttributes.OSMDBT_COMMAND]: command,
-      [OsmdbtAttributes.OSMDBT_COMMAND_ARGS]: args.join(' '),
-    });
+    const spawnedChild = execa(executablePath, args, { encoding: 'utf-8' });
 
-    const commandPath = join(OSMDBT_BIN_PATH, command);
-    const spawnedChild = execa(commandPath, args, { encoding: 'utf-8' });
-    const { exitCode, stderr } = await spawnedChild;
+    const { exitCode, stderr, stdout } = await spawnedChild;
 
     if (exitCode !== 0) {
       throw new ErrorWithExitCode(stderr.length > 0 ? stderr : `osmdbt ${command} failed with exit code ${exitCode}`, ExitCodes.OSMDBT_ERROR);
     }
 
     handleSpanOnSuccess(span);
+
+    return stdout;
   } catch (error) {
     logger.error({ msg: 'failure occurred during command execution', executable: 'osmdbt', command, args });
 
     handleSpanOnError(span, error);
+    const exitCode = executable === 'osmdbt' ? ExitCodes.OSMDBT_ERROR : ExitCodes.OSMIUM_ERROR;
     if (error instanceof Error) {
-      throw new ErrorWithExitCode(error.message, ExitCodes.OSMDBT_ERROR);
+      throw new ErrorWithExitCode(error.message, exitCode);
     }
 
-    throw new ErrorWithExitCode('osmdbt errored', ExitCodes.OSMDBT_ERROR);
+    throw new ErrorWithExitCode(`${executable} errored`, exitCode);
   }
+};
+
+const collectInfo = async (sequenceNumber: string): Promise<Record<string, unknown>> => {
+  const [top, bottom, stateNumber] = getDiffDirPathComponents(sequenceNumber);
+  const localdiffPath = join(osmdbtConfig.changesDir, top, bottom, `${stateNumber}.${DIFF_FILE_EXTENTION}`);
+
+  const collectedInfo = await tracer.startActiveSpan(CommandSpanName.FILE_INFO, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
+    runCommand('osmium', 'fileinfo', [...GLOBAL_OSMIUM_ARGS, '--extended', '--json', localdiffPath], span)
+  );
+
+  return JSON.parse(collectedInfo) as Record<string, unknown>;
 };
 
 const uploadDiff = async (sequenceNumber: string, span?: Span): Promise<void> => {
@@ -250,8 +272,8 @@ const commitChanges = async (span?: Span): Promise<void> => {
 
   try {
     await tracer.startActiveSpan('mark-logs', {}, contextAPI.active(), markLogFilesForCatchup);
-    await tracer.startActiveSpan(OsmdbtSpanName.CATCHUP, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
-      runOsmdbtCommand(OsmdbtCommand.CATCHUP, undefined, span)
+    await tracer.startActiveSpan(CommandSpanName.CATCHUP, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
+      runCommand('osmdbt', OsmdbtCommand.CATCHUP, GLOBAL_OSMDBT_ARGS, span)
     );
     handleSpanOnSuccess(span);
   } catch (error) {
@@ -344,7 +366,9 @@ const main = async (): Promise<void> => {
 
     await tracer.startActiveSpan('prepare-environment', {}, contextAPI.active(), prepareEnvironment);
 
-    await tracer.startActiveSpan('lock-s3', {}, contextAPI.active(), lockS3);
+    if (appConfig.shouldLockObjectStorage) {
+      await tracer.startActiveSpan('lock-s3', {}, contextAPI.active(), lockS3);
+    }
 
     await tracer.startActiveSpan('get-start-state', {}, contextAPI.active(), getStateFileFromS3ToFs);
     const startState = await tracer.startActiveSpan(FsSpanName.FS_READ, {}, contextAPI.active(), getSequenceNumber);
@@ -353,12 +377,12 @@ const main = async (): Promise<void> => {
 
     rootJobSpan.setAttribute(JobAttributes.JOB_STATE_START, startState);
 
-    await tracer.startActiveSpan(OsmdbtSpanName.GET_LOG, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
-      runOsmdbtCommand(OsmdbtCommand.GET_LOG, ['-m', osmdbtConfig.getLogMaxChanges.toString()], span)
+    await tracer.startActiveSpan(CommandSpanName.GET_LOG, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
+      runCommand('osmdbt', OsmdbtCommand.GET_LOG, [...GLOBAL_OSMDBT_ARGS, '-m', osmdbtConfig.getLogMaxChanges.toString()], span)
     );
 
-    await tracer.startActiveSpan(OsmdbtSpanName.CREATE_DIFF, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
-      runOsmdbtCommand(OsmdbtCommand.CREATE_DIFF, undefined, span)
+    await tracer.startActiveSpan(CommandSpanName.CREATE_DIFF, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
+      runCommand('osmdbt', OsmdbtCommand.CREATE_DIFF, GLOBAL_OSMDBT_ARGS, span)
     );
 
     const endState = await tracer.startActiveSpan(FsSpanName.FS_READ, {}, contextAPI.active(), getSequenceNumber);
@@ -370,7 +394,9 @@ const main = async (): Promise<void> => {
 
       await mediator?.removeLock();
 
-      await tracer.startActiveSpan('unlock-s3', {}, contextAPI.active(), unlockS3);
+      if (appConfig.shouldLockObjectStorage) {
+        await tracer.startActiveSpan('unlock-s3', {}, contextAPI.active(), unlockS3);
+      }
 
       await processExitSafely(ExitCodes.SUCCESS);
     }
@@ -407,7 +433,12 @@ const main = async (): Promise<void> => {
       throw error;
     }
 
-    await mediator?.updateAction({ status: ActionStatus.COMPLETED });
+    const metadata: Record<string, unknown> = {};
+    if (appConfig.shouldCollectInfo) {
+      metadata.info = await collectInfo(endState);
+    }
+
+    await mediator?.updateAction({ status: ActionStatus.COMPLETED, metadata });
 
     logger.info({ msg: 'job completed successfully, exiting gracefully', startState, endState });
   } catch (error) {
@@ -420,7 +451,7 @@ const main = async (): Promise<void> => {
 
     await mediator?.updateAction({ status: ActionStatus.FAILED, metadata: { error } });
   } finally {
-    if (isS3Locked) {
+    if (appConfig.shouldLockObjectStorage && isS3Locked) {
       await tracer.startActiveSpan('unlock-s3', {}, contextAPI.active(), unlockS3);
     }
 
