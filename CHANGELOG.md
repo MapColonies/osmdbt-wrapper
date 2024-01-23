@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.2.0](https://github.com/MapColonies/osmdbt-wrapper/compare/v2.1.1...v2.2.0) (2024-01-23)
+
+
+### Features
+
+* added diff info collection ([#14](https://github.com/MapColonies/osmdbt-wrapper/issues/14)) ([2c4559a](https://github.com/MapColonies/osmdbt-wrapper/commit/2c4559acf1f9b3e6865440a509011b0c769a5fb2))
+
 ### [2.1.1](https://github.com/MapColonies/osmdbt-wrapper/compare/v2.1.0...v2.1.1) (2023-06-12)
 
 ## [2.1.0](https://github.com/MapColonies/osmdbt-wrapper/compare/v2.0.0...v2.1.0) (2023-06-08)
