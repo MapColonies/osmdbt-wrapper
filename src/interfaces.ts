@@ -17,6 +17,7 @@ export interface OsmiumConfig {
 export interface AppConfig {
   shouldLockObjectStorage: boolean;
   shouldCollectInfo: boolean;
+  cron?: { enabled: true; expression: string; failurePenalty: number } | { enabled: false };
 }
 
 export interface TracingConfig {

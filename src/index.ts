@@ -7,6 +7,7 @@ import { Tracing } from '@map-colonies/telemetry';
 import { trace as traceAPI, context as contextAPI, SpanStatusCode, SpanKind, SpanStatus, Span } from '@opentelemetry/api';
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
 import execa from 'execa';
+import cron from 'node-cron';
 import { ObjectCannedACL } from '@aws-sdk/client-s3';
 import {
   BACKUP_DIR_NAME,
@@ -41,6 +42,7 @@ const osmdbtConfig = config.get<OsmdbtConfig>('osmdbt');
 const osmiumConfig = config.get<OsmiumConfig>('osmium');
 const arstotzkaConfig = config.get<ArstotzkaConfig>('arstotzka');
 const appConfig = config.get<AppConfig>('app');
+const cronConfig = config.get<AppConfig['cron']>('app.cron');
 
 const OSMDBT_STATE_PATH = join(osmdbtConfig.changesDir, STATE_FILE);
 const OSMDBT_STATE_BACKUP_PATH = join(osmdbtConfig.changesDir, BACKUP_DIR_NAME, STATE_FILE);
@@ -48,11 +50,14 @@ const GLOBAL_OSMDBT_ARGS = osmdbtConfig.verbose ? ['-c', OSMDBT_CONFIG_PATH] : [
 const GLOBAL_OSMIUM_ARGS = osmiumConfig.verbose
   ? ['--verbose', osmiumConfig.progress ? '--progress' : '--no-progress']
   : [osmiumConfig.progress ? '--progress' : '--no-progress'];
+const MILLISECONDS_IN_SECOND = 1000;
 
 let jobExitCode = ExitCodes.SUCCESS;
 let isS3Locked = false;
 let filesUploaded = 0;
 let mediator: StatefulMediator | undefined;
+let cronJob: cron.ScheduledTask | undefined;
+let shouldRun = true;
 
 if (arstotzkaConfig.enabled) {
   mediator = new StatefulMediator({ ...arstotzkaConfig.mediator, serviceId: arstotzkaConfig.serviceId, logger });
@@ -60,6 +65,8 @@ if (arstotzkaConfig.enabled) {
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
+    shouldRun = false;
+    cronJob?.stop();
     cleanup(ExitCodes.TERMINATED).finally(() => process.exit(ExitCodes.TERMINATED));
   });
 }
@@ -314,7 +321,7 @@ const markLogFilesForCatchup = async (span?: Span): Promise<void> => {
   handleSpanOnSuccess(span);
 };
 
-const rollback = async (span?: Span): Promise<void> => {
+const rollback = async (span?: Span): Promise<number | undefined> => {
   logger.info({ msg: 'something went wrong while processing state running rollback' });
 
   rootJobSpan.setAttribute(JobAttributes.JOB_ROLLBACK, true);
@@ -333,16 +340,16 @@ const rollback = async (span?: Span): Promise<void> => {
     logger.fatal({ msg: 'failed to rollback, for safety reasons keeping the s3 bucket locked, unlock it manually', err: error });
 
     handleSpanOnError(span, error);
-    await processExitSafely(ExitCodes.ROLLBACK_FAILURE_ERROR);
+    return await processExitSafely(ExitCodes.ROLLBACK_FAILURE_ERROR);
   }
 };
 
-const processExitSafely = async (exitCode = ExitCodes.GENERAL_ERROR): Promise<void> => {
+const processExitSafely = async (exitCode = ExitCodes.GENERAL_ERROR): Promise<number> => {
   logger.info({ msg: 'exiting safely', exitCode });
 
   await cleanup(exitCode);
 
-  process.exit(exitCode);
+  return exitCode;
 };
 
 const cleanup = async (exitCode: number): Promise<void> => {
@@ -358,7 +365,7 @@ const cleanup = async (exitCode: number): Promise<void> => {
   await tracing.stop();
 };
 
-const main = async (): Promise<void> => {
+const main = async (): Promise<number> => {
   logger.info({ msg: 'new job has started' });
 
   try {
@@ -398,7 +405,7 @@ const main = async (): Promise<void> => {
         await tracer.startActiveSpan('unlock-s3', {}, contextAPI.active(), unlockS3);
       }
 
-      await processExitSafely(ExitCodes.SUCCESS);
+      return await processExitSafely(ExitCodes.SUCCESS);
     }
 
     await mediator?.createAction({ state: +endState });
@@ -454,10 +461,39 @@ const main = async (): Promise<void> => {
     if (appConfig.shouldLockObjectStorage && isS3Locked) {
       await tracer.startActiveSpan('unlock-s3', {}, contextAPI.active(), unlockS3);
     }
-
     await processExitSafely(jobExitCode);
   }
+  return jobExitCode;
 };
 
-const mainContext = traceAPI.setSpan(contextAPI.active(), rootJobSpan);
-void contextAPI.with(mainContext, main);
+const init = async (): Promise<void> => {
+  const mainContext = traceAPI.setSpan(contextAPI.active(), rootJobSpan);
+  await contextAPI.with(mainContext, main);
+};
+
+if (cronConfig?.enabled && cron.validate(cronConfig.expression)) {
+  logger.info({ msg: 'running in cron job mode', cronConfig });
+  cronJob = cron.schedule(cronConfig.expression, () => {
+    if (!shouldRun) {
+      return;
+    }
+    void new Promise((resolve) => {
+      shouldRun = false;
+      init()
+        .then(resolve)
+        .catch((error: unknown) => {
+          logger.error({ msg: 'an error occurred during cron job execution. strting penalty timer', timeout: cronConfig.failurePenalty, err: error });
+
+          setTimeout(() => {
+            logger.info({ msg: 'penalty timer finished, cron job will run again' });
+          }, cronConfig.failurePenalty * MILLISECONDS_IN_SECOND);
+
+          resolve(error);
+        })
+        .finally(() => (shouldRun = true));
+    });
+  });
+} else {
+  logger.info({ msg: 'running in one time mode' });
+  void init();
+}
