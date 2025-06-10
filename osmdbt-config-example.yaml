@@ -6,7 +6,7 @@ database:
   user: postgres
   password: G3CGoRjpbZ
   replication_slot: replication_slot
-log_dir: /tmp
+log_dir: /tmp/log
 changes_dir: /tmp
 tmp_dir: /tmp
 run_dir: /tmp
