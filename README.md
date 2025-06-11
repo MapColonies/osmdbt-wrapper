@@ -9,6 +9,9 @@ Only one job can run at a time to prevent a race condition on the replication sl
 
 ## Configuration
 
+> [!IMPORTANT]  
+> Make sure `osmdbt-config.yaml` config is the same config in `/config` file!
+
 **Values**
 
 - `cronjob.schedule` - the cronjob schedule interval in the format of [the cron schedule syntax](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#cron-schedule-syntax)
