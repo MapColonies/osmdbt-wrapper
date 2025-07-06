@@ -4,6 +4,7 @@ export enum FsSpanName {
   FS_APPEND = 'fs.append',
   FS_READ = 'fs.read',
   FS_RENAME = 'fs.rename',
+  FS_UNLINK = 'fs.unlink',
 }
 
 export enum FsAttributes {

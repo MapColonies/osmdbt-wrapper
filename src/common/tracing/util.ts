@@ -1,5 +1,5 @@
 import { trace as traceAPI, Attributes, Context, Span, SpanStatusCode } from '@opentelemetry/api';
-import { ErrorWithExitCode } from '../../errors';
+import { ErrorWithExitCode } from '../errors';
 
 export const TRACER_NAME = 'osmdbt-wrapper';
 
@@ -15,7 +15,7 @@ export const promisifySpan = async <T>(spanName: string, spanAttributes: Attribu
       })
       .catch((error) => {
         handleSpanOnError(span, error);
-        reject(error);
+        reject(error as Error);
       });
   });
 };

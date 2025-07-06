@@ -1,6 +1,26 @@
 import { join } from 'path';
+import { readPackageJsonSync } from '@map-colonies/read-pkg';
 
 const OSMDBT_BASE_PATH = '/osmdbt';
+
+export const SERVICE_NAME = readPackageJsonSync().name ?? 'unknown_service';
+export const DEFAULT_SERVER_PORT = 80;
+
+export const IGNORED_OUTGOING_TRACE_ROUTES = [/^.*\/v1\/metrics.*$/];
+export const IGNORED_INCOMING_TRACE_ROUTES = [/^.*\/docs.*$/];
+
+/* eslint-disable @typescript-eslint/naming-convention */
+export const SERVICES = {
+  LOGGER: Symbol('Logger'),
+  CONFIG: Symbol('Config'),
+  TRACER: Symbol('Tracer'),
+  METRICS: Symbol('METRICS'),
+  CLEANUP_REGISTRY: Symbol('CleanupRegistry'),
+  ON_SIGNAL: Symbol('OnSignal'),
+  S3_CLIENT: Symbol('S3Client'),
+  MEDIATOR: Symbol('Mediator'),
+} satisfies Record<string, symbol>;
+/* eslint-enable @typescript-eslint/naming-convention */
 
 export type Executable = 'osmdbt' | 'osmium';
 
@@ -19,9 +39,7 @@ export const STATE_FILE = 'state.txt';
 export const OSMDBT_DONE_LOG_PREFIX = '.done';
 export const DIFF_FILE_EXTENTION = 'osc.gz';
 export const BACKUP_DIR_NAME = 'backup';
-export const S3_REGION = 'us-east-1';
 export const S3_NOT_FOUND_ERROR_NAME = 'NotFound';
-export const S3_LOCK_FILE_NAME = 'lockfile';
 export const SEQUENCE_NUMBER_COMPONENT_LENGTH = 3;
 
 /* eslint-disable @typescript-eslint/naming-convention */
@@ -33,7 +51,6 @@ export const ExitCodes = {
   INVALID_STATE_FILE_ERROR: 102,
   ROLLBACK_FAILURE_ERROR: 104,
   S3_ERROR: 105,
-  S3_LOCKED_ERROR: 106,
   TERMINATED: 130,
 };
 /* eslint-enable @typescript-eslint/naming-convention */

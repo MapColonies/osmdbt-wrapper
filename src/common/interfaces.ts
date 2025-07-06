@@ -1,6 +1,11 @@
 import { ObjectCannedACL } from '@aws-sdk/client-s3';
 import { MediatorConfig } from '@map-colonies/arstotzka-mediator';
 
+export interface IConfig {
+  get: <T>(setting: string) => T;
+  has: (setting: string) => boolean;
+}
+
 export interface OsmdbtConfig {
   changesDir: string;
   runDir: string;
@@ -15,8 +20,8 @@ export interface OsmiumConfig {
 }
 
 export interface AppConfig {
-  shouldLockObjectStorage: boolean;
   shouldCollectInfo: boolean;
+  cron?: { enabled: true; expression: string; failurePenaltySeconds: number } | { enabled: false };
 }
 
 export interface TracingConfig {
@@ -28,6 +33,11 @@ export interface ObjectStorageConfig {
   endpoint: string;
   bucketName: string;
   acl: ObjectCannedACL;
+  credentials: {
+    accessKey: string;
+    secretKey: string;
+  };
+  region: string;
 }
 
 export interface ArstotzkaConfig {

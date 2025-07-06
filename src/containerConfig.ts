@@ -1,0 +1,132 @@
+import { getOtelMixin } from '@map-colonies/telemetry';
+import { CleanupRegistry } from '@map-colonies/cleanup-registry';
+import { instancePerContainerCachingFactory } from 'tsyringe';
+import { trace } from '@opentelemetry/api';
+import { Registry } from 'prom-client';
+import { DependencyContainer } from 'tsyringe/dist/typings/types';
+import jsLogger from '@map-colonies/js-logger';
+import { InjectionObject, registerDependencies } from '@common/dependencyRegistration';
+import { SERVICES, SERVICE_NAME } from '@common/constants';
+import { getTracing } from '@common/tracing';
+import { ConfigType, getConfig } from './common/config';
+import { S3ClientFactory, s3RepositoryFactory } from './s3';
+import { S3_REPOSITORY } from './s3/s3Repository';
+import { Mediator, mediatorFactory } from './mediator';
+import { ArstotzkaConfig } from './common/interfaces';
+import { OSMDBT_PROCESSOR, OsmdbtProcessor, osmdbtProcessorFactory } from './osmdbt';
+
+export interface RegisterOptions {
+  override?: InjectionObject<unknown>[];
+  useChild?: boolean;
+}
+
+export const registerExternalValues = async (options?: RegisterOptions): Promise<DependencyContainer> => {
+  const cleanupRegistry = new CleanupRegistry();
+
+  const dependencies: InjectionObject<unknown>[] = [
+    { token: SERVICES.CONFIG, provider: { useValue: getConfig() } },
+    {
+      token: SERVICES.LOGGER,
+      provider: {
+        useFactory: instancePerContainerCachingFactory((container) => {
+          const config = container.resolve<ConfigType>(SERVICES.CONFIG);
+
+          const loggerConfig = config.get('telemetry.logger');
+          const logger = jsLogger({ ...loggerConfig, prettyPrint: loggerConfig.prettyPrint, mixin: getOtelMixin() });
+
+          const cleanupRegistryLogger = logger.child({ subComponent: 'cleanupRegistry' });
+          cleanupRegistry.on('itemFailed', (id, error, msg) => cleanupRegistryLogger.error({ msg, itemId: id, err: error }));
+          cleanupRegistry.on('finished', (status) => cleanupRegistryLogger.info({ msg: `cleanup registry finished cleanup`, status }));
+
+          return logger;
+        }),
+      },
+    },
+    {
+      token: SERVICES.TRACER,
+      provider: {
+        useFactory: instancePerContainerCachingFactory((container) => {
+          const cleanupRegistry = container.resolve<CleanupRegistry>(SERVICES.CLEANUP_REGISTRY);
+          cleanupRegistry.register({ id: SERVICES.TRACER, func: getTracing().stop.bind(getTracing()) });
+          const tracer = trace.getTracer(SERVICE_NAME);
+          return tracer;
+        }),
+      },
+    },
+    {
+      token: SERVICES.METRICS,
+      provider: {
+        useFactory: instancePerContainerCachingFactory((container) => {
+          const metricsRegistry = new Registry();
+          const config = container.resolve<ConfigType>(SERVICES.CONFIG);
+          config.initializeMetrics(metricsRegistry);
+          return metricsRegistry;
+        }),
+      },
+    },
+    {
+      token: SERVICES.CLEANUP_REGISTRY,
+      provider: { useValue: cleanupRegistry },
+    },
+    {
+      token: SERVICES.ON_SIGNAL,
+      provider: {
+        useValue: {
+          useValue: cleanupRegistry.register.bind(cleanupRegistry),
+        },
+      },
+    },
+    {
+      token: SERVICES.S3_CLIENT,
+      provider: {
+        useFactory: instancePerContainerCachingFactory(S3ClientFactory),
+      },
+    },
+    {
+      token: S3_REPOSITORY,
+      provider: {
+        useFactory: s3RepositoryFactory,
+      },
+    },
+    {
+      token: SERVICES.MEDIATOR,
+      provider: {
+        useFactory: instancePerContainerCachingFactory(mediatorFactory),
+      },
+      postInjectionHook: (container: DependencyContainer): void => {
+        const cleanupRegistry = container.resolve<CleanupRegistry>(SERVICES.CLEANUP_REGISTRY);
+        cleanupRegistry.register({
+          id: SERVICES.MEDIATOR,
+          func: async () => {
+            const config = container.resolve<ConfigType>(SERVICES.CONFIG).get('arstotzka') as ArstotzkaConfig;
+            const mediator = container.resolve<Mediator>(SERVICES.MEDIATOR);
+            if (config.enabled) {
+              await mediator.removeLock();
+            }
+          },
+        });
+      },
+    },
+    {
+      token: OSMDBT_PROCESSOR,
+      provider: {
+        useFactory: osmdbtProcessorFactory,
+      },
+      postInjectionHook: (container: DependencyContainer): void => {
+        const cleanupRegistry = container.resolve<CleanupRegistry>(SERVICES.CLEANUP_REGISTRY);
+        cleanupRegistry.register({
+          id: OSMDBT_PROCESSOR,
+          func: async () => {
+            const osmdbtProcessor = container.resolve<OsmdbtProcessor>(OSMDBT_PROCESSOR);
+            const x = await osmdbtProcessor();
+            if (typeof x === 'object') {
+              await x.destroy();
+            }
+          },
+        });
+      },
+    },
+  ];
+
+  return Promise.resolve(registerDependencies(dependencies, options?.override, options?.useChild));
+};

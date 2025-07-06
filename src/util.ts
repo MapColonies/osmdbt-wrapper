@@ -1,5 +1,5 @@
 import { contentType } from 'mime-types';
-import { DIFF_TOP_DIR_DIVIDER, DIFF_BOTTOM_DIR_DIVIDER, DIFF_STATE_FILE_MODULO, SEQUENCE_NUMBER_COMPONENT_LENGTH } from './constants';
+import { DIFF_TOP_DIR_DIVIDER, DIFF_BOTTOM_DIR_DIVIDER, DIFF_STATE_FILE_MODULO, SEQUENCE_NUMBER_COMPONENT_LENGTH } from './common/constants';
 
 export const streamToString = async (stream: NodeJS.ReadStream): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -10,7 +10,7 @@ export const streamToString = async (stream: NodeJS.ReadStream): Promise<string>
   });
 };
 
-export const getDiffDirPathComponents = (sequenceNumberString: string): string[] => {
+export const getDiffDirPathComponents = (sequenceNumberString: string): [string, string, string] => {
   const sequenceNumberInt = parseInt(sequenceNumberString);
 
   const top = sequenceNumberInt / DIFF_TOP_DIR_DIVIDER;
@@ -20,7 +20,7 @@ export const getDiffDirPathComponents = (sequenceNumberString: string): string[]
   return [top, bottom, state].map((component) => {
     const floored = Math.floor(component);
     return floored.toString().padStart(SEQUENCE_NUMBER_COMPONENT_LENGTH, '0');
-  });
+  }) as [string, string, string];
 };
 
 export const evaluateContentType = (key: string): string | undefined => {
