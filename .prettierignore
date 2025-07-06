@@ -1,12 +1,10 @@
-.github
-.gitignore
+dist
 CHANGELOG.md
-commitlint.config.js
 package-lock.json
-package.json
 README.md
 node_modules
 *.html
-helm
 coverage
-dist
+helm
+reports
+.release-please-manifest.json
