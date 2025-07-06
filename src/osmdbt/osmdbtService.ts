@@ -31,7 +31,6 @@ import { CommandSpanName, ExecutableAttributes } from '@src/common/tracing/execu
 import { getDiffDirPathComponents } from '@src/util';
 import { tryCatch } from '@src/try-catch';
 
-//TODO: Handle processExitSafely - it should stop the job and exit the process with the given exit code
 @singleton()
 @injectable()
 export class OsmdbtService {
