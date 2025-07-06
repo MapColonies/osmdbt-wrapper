@@ -9,7 +9,7 @@ jobs:
 
     strategy:
       matrix:
-        node: [20.x, 12.x]
+        node: [20.x, 22.x]
 
     steps:
       - name: Check out TS Project Git repository
