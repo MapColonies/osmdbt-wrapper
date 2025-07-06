@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/naming-convention */ // span attributes and aws-sdk/client-s3 does not follow convention
 import { DependencyContainer, FactoryFunction } from 'tsyringe';
 import { S3Client } from '@aws-sdk/client-s3';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
-//TODO: adress the depricated warning for @opentelemetry/semantic-conventions
+import { ATTR_RPC_SYSTEM, ATTR_RPC_SERVICE, ATTR_NETWORK_TRANSPORT, ATTR_SERVER_ADDRESS } from '@opentelemetry/semantic-conventions/incubating';
 import { Logger } from '@map-colonies/js-logger';
 import { Attributes, Tracer } from '@opentelemetry/api';
 import { ConfigType } from '@src/common/config';
@@ -40,17 +39,17 @@ export type S3Repository = ReturnType<typeof createS3Repositry>;
 
 export const s3RepositoryFactory: FactoryFunction<S3Repository> = (container: DependencyContainer) => {
   const config = container.resolve<ConfigType>(SERVICES.CONFIG);
-  const s3Client = container.resolve<S3Client>(SERVICES.S3_CLIENT); // TODO : CHANGE
+  const s3Client = container.resolve<S3Client>(SERVICES.S3_CLIENT);
   const tracer = container.resolve<Tracer>(SERVICES.TRACER);
   const logger = container.resolve<Logger>(SERVICES.LOGGER);
 
   const { endpoint, bucketName, acl, region } = config.get('objectStorage') as ObjectStorageConfig;
 
   const baseS3SnapAttributes: Attributes = {
-    [SemanticAttributes.RPC_SYSTEM]: 'aws.api',
-    [SemanticAttributes.RPC_SERVICE]: 'S3',
-    [SemanticAttributes.NET_TRANSPORT]: 'ip_tcp',
-    [SemanticAttributes.NET_PEER_NAME]: endpoint,
+    [ATTR_RPC_SYSTEM]: 'aws.api',
+    [ATTR_RPC_SERVICE]: 'S3',
+    [ATTR_NETWORK_TRANSPORT]: 'ip_tcp',
+    [ATTR_SERVER_ADDRESS]: endpoint,
     [S3Attributes.S3_AWS_REGION]: region,
     [S3Attributes.S3_BUCKET_NAME]: bucketName,
   };
