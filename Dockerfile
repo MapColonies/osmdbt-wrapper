@@ -1,6 +1,4 @@
-ARG NODE_VERSION=16
-
-FROM ubuntu:20.04 as buildOsmdbt
+FROM ubuntu:22.04 as buildOsmdbt
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -18,7 +16,7 @@ RUN git clone https://github.com/openstreetmap/osmdbt.git && \
     cd osmdbt && \
     mkdir build && cd build && cmake -DBUILD_PLUGIN=OFF .. && cmake --build . && make && make install
 
-FROM ubuntu:20.04 AS buildOsmium
+FROM ubuntu:22.04 AS buildOsmium
 
 ENV DEBIAN_FRONTEND=noninteractive
 ARG OSMIUM_TOOL_TAG=v1.16.0
@@ -49,46 +47,50 @@ RUN git clone -b ${OSMIUM_TOOL_TAG} --single-branch https://github.com/osmcode/o
   cmake .. && \
   make
 
-FROM node:${NODE_VERSION} as buildApp
+FROM node:20 as build
 
 WORKDIR /tmp/buildApp
 
 COPY ./package*.json ./
+COPY .husky/ .husky/
 
 RUN npm install
 COPY . .
 RUN npm run build
 
-FROM ubuntu:20.04 as production
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV workdir /app
-ARG NODE_VERSION
+FROM node:20.19.0-slim as production
 
 COPY --from=buildOsmdbt /osmdbt /osmdbt
 COPY --from=buildOsmium /osmium-tool/build /osmium-tool/build
 RUN ln -s /osmium-tool/build/osmium /bin/osmium
 
-WORKDIR ${workdir}
+# Install required runtime libs for osmdbt and osmium-tool
+RUN apt-get update && apt-get install -y \
+    dumb-init \
+    libpqxx-dev \
+    libboost-program-options1.74.0 \
+    libyaml-cpp0.7 \
+    libexpat1 \
+ && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update \
-    && apt-get -yq install curl \
-    && curl -L https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash \
-    && apt-get -yq install nodejs libpqxx-dev libboost-program-options-dev libyaml-cpp-dev libboost-filesystem-dev
+ENV NODE_ENV=production
+ENV SERVER_PORT=8080
 
-COPY ./package*.json ./
+
+WORKDIR /usr/src/app
+
+COPY --chown=node:node package*.json ./
+COPY .husky/ .husky/
 
 RUN npm ci --only=production
 
-COPY --from=buildApp /tmp/buildApp/dist .
-COPY ./config ./config
-COPY start.sh .
+COPY --chown=node:node --from=build /tmp/buildApp/dist .
+COPY --chown=node:node ./config ./config
 
-RUN chgrp root ${workdir}/start.sh && chmod -R a+rwx ${workdir} && \
-    mkdir /.postgresql && chmod g+w /.postgresql
+COPY --chown=node:node start.sh .
+RUN chmod 755 start.sh
 
-# uncomment while developing to make sure the docker runs on openshift
-# RUN useradd -ms /bin/bash user && usermod -a -G root user
-# USER user
 
-ENTRYPOINT [ "/app/start.sh" ]
+USER node
+EXPOSE 8080
+ENTRYPOINT ["/usr/src/app/start.sh"]
