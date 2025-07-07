@@ -30,10 +30,6 @@
         "__format": "number"
       }
     },
-    "shouldLockObjectStorage": {
-      "__name": "APP_SHOULD_LOCK_OBJECT_STORAGE",
-      "__format": "boolean"
-    },
     "shouldCollectInfo": {
       "__name": "APP_SHOULD_COLLECT_INFO",
       "__format": "boolean"

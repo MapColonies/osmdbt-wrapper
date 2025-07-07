@@ -22,7 +22,6 @@
       "expression": "*/30 * * * * *",
       "failurePenaltySeconds": 1
     },
-    "shouldLockObjectStorage": false,
     "shouldCollectInfo": false
   },
   "osmdbt": {
