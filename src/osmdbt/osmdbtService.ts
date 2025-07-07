@@ -6,7 +6,7 @@ import { ActionStatus } from '@map-colonies/arstotzka-common';
 import { Span, SpanKind, SpanStatus, SpanStatusCode, context as contextAPI, type Tracer } from '@opentelemetry/api';
 import { inject, injectable, singleton } from 'tsyringe';
 import { handleSpanOnError, handleSpanOnSuccess } from '@map-colonies/telemetry';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { ATTR_RPC_SYSTEM } from '@opentelemetry/semantic-conventions/incubating';
 import {
   BACKUP_DIR_NAME,
   DIFF_FILE_EXTENTION,
@@ -203,7 +203,7 @@ export class OsmdbtService {
     this.logger.info({ msg: 'executing command', executable, command, args });
 
     span?.setAttributes({
-      [SemanticAttributes.RPC_SYSTEM]: executable,
+      [ATTR_RPC_SYSTEM]: executable,
       [ExecutableAttributes.EXECUTABLE_COMMAND]: command,
       [ExecutableAttributes.EXECUTABLE_COMMAND_ARGS]: args.join(' '),
     });

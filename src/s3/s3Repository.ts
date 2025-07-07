@@ -8,7 +8,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { context as contextAPI, SpanKind, Attributes, Tracer } from '@opentelemetry/api';
-import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+import { ATTR_RPC_SYSTEM } from '@opentelemetry/semantic-conventions/incubating';
 import { Logger } from '@map-colonies/js-logger';
 import { ErrorWithExitCode } from '../common/errors';
 import { ExitCodes, S3_NOT_FOUND_ERROR_NAME } from '../common/constants';
@@ -31,7 +31,7 @@ export const createS3Repositry = (client: S3Client, baseS3SnapAttributes: Attrib
           S3SpanName.HEAD_OBJECT,
           {
             kind: SpanKind.CLIENT,
-            attributes: { ...baseS3SnapAttributes, [SemanticAttributes.RPC_METHOD]: S3Method.HEAD_OBJECT, [S3Attributes.S3_KEY]: key },
+            attributes: { ...baseS3SnapAttributes, [ATTR_RPC_SYSTEM]: S3Method.HEAD_OBJECT, [S3Attributes.S3_KEY]: key },
           },
           contextAPI.active()
         );
@@ -68,7 +68,7 @@ export const createS3Repositry = (client: S3Client, baseS3SnapAttributes: Attrib
           S3SpanName.GET_OBJECT,
           {
             kind: SpanKind.CLIENT,
-            attributes: { ...baseS3SnapAttributes, [SemanticAttributes.RPC_METHOD]: S3Method.GET_OBJECT, [S3Attributes.S3_KEY]: key },
+            attributes: { ...baseS3SnapAttributes, [ATTR_RPC_SYSTEM]: S3Method.GET_OBJECT, [S3Attributes.S3_KEY]: key },
           },
           contextAPI.active()
         );
@@ -103,7 +103,7 @@ export const createS3Repositry = (client: S3Client, baseS3SnapAttributes: Attrib
             kind: SpanKind.CLIENT,
             attributes: {
               ...baseS3SnapAttributes,
-              [SemanticAttributes.RPC_METHOD]: S3Method.PUT_OBJECT,
+              [ATTR_RPC_SYSTEM]: S3Method.PUT_OBJECT,
               [S3Attributes.S3_KEY]: key,
               [S3Attributes.S3_CONTENT_TYPE]: contentType ?? 'unknown',
               [S3Attributes.S3_ACL]: acl,
@@ -137,7 +137,7 @@ export const createS3Repositry = (client: S3Client, baseS3SnapAttributes: Attrib
           S3SpanName.DELETE_OBJECT,
           {
             kind: SpanKind.CLIENT,
-            attributes: { ...baseS3SnapAttributes, [SemanticAttributes.RPC_METHOD]: S3Method.DELETE_OBJECT, [S3Attributes.S3_KEY]: key },
+            attributes: { ...baseS3SnapAttributes, [ATTR_RPC_SYSTEM]: S3Method.DELETE_OBJECT, [S3Attributes.S3_KEY]: key },
           },
           contextAPI.active()
         );
