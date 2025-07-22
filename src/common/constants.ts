@@ -55,4 +55,6 @@ export const ExitCodes = {
 };
 /* eslint-enable @typescript-eslint/naming-convention */
 
-export const FORCE_SHUTDOWN_TIMEOUT_MS = 10000; // 10 seconds
+export const MILLISECONDS_IN_SECOND = 1000;
+// eslint-disable-next-line @typescript-eslint/no-magic-numbers
+export const FORCE_SHUTDOWN_TIMEOUT_MS = 10 * MILLISECONDS_IN_SECOND;
