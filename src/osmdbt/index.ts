@@ -5,6 +5,7 @@ import { ConfigType } from '@src/common/config';
 import { MILLISECONDS_IN_SECOND, SERVICES } from '@src/common/constants';
 import { AppConfig } from '@src/common/interfaces';
 import { tryCatch } from '@src/try-catch';
+import { delay } from '@src/util';
 import { OsmdbtService } from './osmdbtService';
 
 type OsmdbtProcessorFuncReturnType = Promise<ScheduledTask | void>;
@@ -32,7 +33,7 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
       if (res.error) {
         failurePenalty *= MILLISECONDS_IN_SECOND;
         logger.error({ msg: 'Error during osmdbt job', error: res.error, failurePenalty });
-        await new Promise((resolve) => setTimeout(resolve, failurePenalty));
+        await delay(failurePenalty);
         throw res.error;
       }
       logger.info({ msg: 'Finished osmdbt job' });

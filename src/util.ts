@@ -35,3 +35,5 @@ export const evaluateContentType = (key: string): string | undefined => {
 
   return evaluatedContentType;
 };
+
+export const delay = async (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
