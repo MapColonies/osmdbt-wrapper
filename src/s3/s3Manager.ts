@@ -17,6 +17,7 @@ import { type S3Repository } from '.';
 export class S3Manager {
   private readonly objectStorageConfig: ObjectStorageConfig;
   private readonly filesCounter?: PromCounter<'rootSpan'>;
+  private readonly errorCounter?: PromCounter<'rootSpan'>;
   public constructor(
     @inject(S3_REPOSITORY) private readonly s3Repository: S3Repository,
     @inject(SERVICES.CONFIG) private readonly config: ConfigType,
@@ -29,6 +30,12 @@ export class S3Manager {
       this.filesCounter = new PromCounter({
         name: 'osmdbt_files_count',
         help: 'The total number of files uploaded to s3',
+        labelNames: ['rootSpan'] as const,
+        registers: [registry],
+      });
+      this.errorCounter = new PromCounter({
+        name: 'osmdbt_s3_error_count',
+        help: 'The total number of errors encountered while interacting with s3',
         labelNames: ['rootSpan'] as const,
         registers: [registry],
       });
@@ -51,7 +58,7 @@ export class S3Manager {
     try {
       stateFileStream = await this.s3Repository.getObjectWrapper(this.objectStorageConfig.bucketName, STATE_FILE);
     } catch (error) {
-      handleSpanOnError(span, error);
+      handleSpanOnError(span, error, this.errorCounter);
       throw error;
     }
 
@@ -66,7 +73,7 @@ export class S3Manager {
     try {
       await Promise.all(writeFilesPromises);
     } catch (error) {
-      handleSpanOnError(span, error);
+      handleSpanOnError(span, error, this.errorCounter);
       throw error;
     }
 
@@ -82,7 +89,7 @@ export class S3Manager {
       handleSpanOnSuccess(span);
     } catch (error) {
       this.logger.error({ err: error, msg: 'failed to put file to s3', fileName });
-      handleSpanOnError(span, error);
+      handleSpanOnError(span, error, this.errorCounter);
     }
   }
 }
