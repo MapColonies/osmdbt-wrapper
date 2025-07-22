@@ -1,7 +1,4 @@
 import express from 'express';
-import bodyParser from 'body-parser';
-import compression from 'compression';
-import { getErrorHandlerMiddleware } from '@map-colonies/error-express-handler';
 import { inject, injectable } from 'tsyringe';
 import type { Logger } from '@map-colonies/js-logger';
 import httpLogger from '@map-colonies/express-access-log-middleware';
@@ -25,7 +22,6 @@ export class ServerBuilder {
 
   public build(): express.Application {
     this.registerPreRoutesMiddleware();
-    this.registerPostRoutesMiddleware();
 
     return this.serverInstance;
   }
@@ -33,9 +29,6 @@ export class ServerBuilder {
   private registerPreRoutesMiddleware(): void {
     this.serverInstance.use(collectMetricsExpressMiddleware({ registry: this.metricsRegistry }));
     this.serverInstance.use(httpLogger({ logger: this.logger, ignorePaths: ['/metrics'] }));
-  }
-
-  private registerPostRoutesMiddleware(): void {
-    this.serverInstance.use(getErrorHandlerMiddleware());
+    this.serverInstance.use(getTraceContexHeaderMiddleware());
   }
 }
