@@ -14,9 +14,9 @@ export const promisifySpan = async <T>(spanName: string, spanAttributes: Attribu
         handleSpanOnSuccess(span);
         resolve(result);
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         handleSpanOnError(span, error);
-        reject(error as Error);
+        reject(error instanceof Error ? error : new Error(String(error)));
       });
   });
 };
