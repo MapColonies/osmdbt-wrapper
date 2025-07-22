@@ -5,7 +5,6 @@
   // List of extensions which should be recommended for users of this workspace.
   "recommendations": [
     "redhat.vscode-yaml",
-    "Redocly.openapi-vs-code",
     "esbenp.prettier-vscode",
     "Tim-Koehler.helm-intellisense",
     "42Crunch.vscode-openapi",

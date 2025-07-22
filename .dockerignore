@@ -8,7 +8,6 @@ node_modules
 commitlint.config.json
 README.md
 .npmrc
-.redocly.yaml
 tsconfig.lint.json
 .nvmrc
 .git*
