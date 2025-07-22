@@ -2,7 +2,7 @@ import { ScheduledTask, schedule as cronSchedule } from 'node-cron';
 import { type Logger } from '@map-colonies/js-logger';
 import { DependencyContainer, FactoryFunction } from 'tsyringe';
 import { ConfigType } from '@src/common/config';
-import { SERVICES } from '@src/common/constants';
+import { MILLISECONDS_IN_SECOND, SERVICES } from '@src/common/constants';
 import { AppConfig } from '@src/common/interfaces';
 import { tryCatch } from '@src/try-catch';
 import { OsmdbtService } from './osmdbtService';
@@ -10,8 +10,6 @@ import { OsmdbtService } from './osmdbtService';
 type OsmdbtProcessorFuncReturnType = Promise<ScheduledTask | void>;
 
 let osmdbtProcessor: OsmdbtProcessor | undefined = undefined;
-
-const MILLISECONDS_IN_SECOND = 1000;
 
 export const OSMDBT_PROCESSOR = Symbol('OsmdbtProcessor');
 
@@ -32,8 +30,9 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
       logger.info('Starting osmdbt job');
       const res = await tryCatch(osmdbtService.startJob());
       if (res.error) {
-        logger.error('Error during osmdbt job', { error: res.error });
-        await new Promise((resolve) => setTimeout(resolve, failurePenalty * MILLISECONDS_IN_SECOND));
+        failurePenalty *= MILLISECONDS_IN_SECOND;
+        logger.error('Error during osmdbt job', { error: res.error, failurePenalty });
+        await new Promise((resolve) => setTimeout(resolve, failurePenalty));
         throw res.error;
       }
       logger.info('Finished osmdbt job');
