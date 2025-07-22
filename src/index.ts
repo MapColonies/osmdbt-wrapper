@@ -3,12 +3,10 @@ import 'reflect-metadata';
 import { createServer } from 'http';
 import { createTerminus } from '@godaddy/terminus';
 import { Logger } from '@map-colonies/js-logger';
-import { SERVICES } from '@common/constants';
+import { FORCE_SHUTDOWN_TIMEOUT_MS, SERVICES } from '@common/constants';
 import { ConfigType } from '@common/config';
 import { getApp } from './app';
 import { OSMDBT_PROCESSOR, OsmdbtProcessor } from './osmdbt';
-
-const FORCE_SHUTDOWN_TIMEOUT = 10000; // 10 seconds
 
 void getApp()
   .then(async ([app, container]) => {
@@ -33,7 +31,7 @@ void getApp()
       setTimeout(() => {
         console.error('Forcing shutdown...');
         process.exit(1);
-      }, FORCE_SHUTDOWN_TIMEOUT);
+      }, FORCE_SHUTDOWN_TIMEOUT_MS);
     }
 
     server.listen(port, () => {

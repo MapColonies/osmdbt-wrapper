@@ -54,3 +54,5 @@ export const ExitCodes = {
   TERMINATED: 130,
 };
 /* eslint-enable @typescript-eslint/naming-convention */
+
+export const FORCE_SHUTDOWN_TIMEOUT_MS = 10000; // 10 seconds
