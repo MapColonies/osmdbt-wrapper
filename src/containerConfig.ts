@@ -72,7 +72,7 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
       token: SERVICES.ON_SIGNAL,
       provider: {
         useValue: {
-          useValue: cleanupRegistry.register.bind(cleanupRegistry),
+          useValue: cleanupRegistry.trigger.bind(cleanupRegistry),
         },
       },
     },
