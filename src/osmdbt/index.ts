@@ -27,22 +27,23 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
 
   osmdbtProcessor = async (): OsmdbtProcessorFuncReturnType => {
     const runFn = async (failurePenalty: number = 0): Promise<void> => {
-      logger.info('Starting osmdbt job');
+      logger.info({ msg: 'Starting osmdbt job' });
       const res = await tryCatch(osmdbtService.startJob());
       if (res.error) {
         failurePenalty *= MILLISECONDS_IN_SECOND;
-        logger.error('Error during osmdbt job', { error: res.error, failurePenalty });
+        logger.error({ msg: 'Error during osmdbt job', error: res.error, failurePenalty });
         await new Promise((resolve) => setTimeout(resolve, failurePenalty));
         throw res.error;
       }
-      logger.info('Finished osmdbt job');
+      logger.info({ msg: 'Finished osmdbt job' });
       return;
     };
 
     if (appConfig.cron?.enabled === true) {
       const { failurePenaltySeconds } = appConfig.cron;
 
-      logger.info('Run mode: CronJob', {
+      logger.info({
+        msg: 'Run mode: CronJob',
         cronExpression: appConfig.cron.expression,
         failurePenaltySeconds: appConfig.cron.failurePenaltySeconds,
       });
@@ -59,7 +60,7 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
 
       return scheduledTask;
     } else {
-      logger.info('Run mode: Running osmdbt job once');
+      logger.info({ msg: 'Run mode: Running osmdbt job once' });
       await runFn();
     }
   };

@@ -24,18 +24,18 @@ void getApp()
     const osmdbtProcess = await container.resolve<OsmdbtProcessor>(OSMDBT_PROCESSOR)();
     if (typeof osmdbtProcess !== 'object') {
       server.close(() => {
-        logger.info('Server closed, exiting process');
+        logger.info({ msg: 'Server closed, exiting process' });
         process.exit(0);
       });
 
       setTimeout(() => {
-        logger.error('Forcing shutdown...');
+        logger.error({ msg: 'Forcing shutdown...' });
         process.exit(1);
       }, FORCE_SHUTDOWN_TIMEOUT_MS);
     }
 
     server.listen(port, () => {
-      logger.info(`app started on port ${port}`);
+      logger.info({ msg: `app started on port ${port}` });
     });
   })
   .catch((error: Error) => {
