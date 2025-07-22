@@ -41,6 +41,12 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
 
     if (appConfig.cron?.enabled === true) {
       const { failurePenaltySeconds } = appConfig.cron;
+
+      logger.info('Run mode: CronJob', {
+        cronExpression: appConfig.cron.expression,
+        failurePenaltySeconds: appConfig.cron.failurePenaltySeconds,
+      });
+
       const scheduledTask = cronSchedule(
         appConfig.cron.expression,
         async () => {
@@ -53,6 +59,7 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
 
       return scheduledTask;
     } else {
+      logger.info('Run mode: Running osmdbt job once');
       await runFn();
     }
   };
