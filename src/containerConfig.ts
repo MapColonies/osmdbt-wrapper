@@ -11,8 +11,7 @@ import { getTracing } from '@common/tracing';
 import { ConfigType, getConfig } from './common/config';
 import { S3ClientFactory, s3RepositoryFactory } from './s3';
 import { S3_REPOSITORY } from './s3/s3Repository';
-import { Mediator, mediatorFactory } from './mediator';
-import { ArstotzkaConfig } from './common/interfaces';
+import { mediatorFactory } from './mediator';
 import { OSMDBT_PROCESSOR, OsmdbtProcessor, osmdbtProcessorFactory } from './osmdbt';
 
 export interface RegisterOptions {
@@ -92,19 +91,6 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
       token: SERVICES.MEDIATOR,
       provider: {
         useFactory: instancePerContainerCachingFactory(mediatorFactory),
-      },
-      postInjectionHook: (container: DependencyContainer): void => {
-        const cleanupRegistry = container.resolve<CleanupRegistry>(SERVICES.CLEANUP_REGISTRY);
-        cleanupRegistry.register({
-          id: SERVICES.MEDIATOR,
-          func: async () => {
-            const config = container.resolve<ConfigType>(SERVICES.CONFIG).get('arstotzka') as ArstotzkaConfig;
-            const mediator = container.resolve<Mediator>(SERVICES.MEDIATOR);
-            if (config.enabled) {
-              await mediator.removeLock();
-            }
-          },
-        });
       },
     },
     {
