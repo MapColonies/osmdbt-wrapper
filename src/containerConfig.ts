@@ -104,9 +104,9 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
           id: OSMDBT_PROCESSOR,
           func: async () => {
             const osmdbtProcessor = container.resolve<OsmdbtProcessor>(OSMDBT_PROCESSOR);
-            const x = await osmdbtProcessor();
-            if (typeof x === 'object') {
-              await x.destroy();
+            const osmdbtProcess = await osmdbtProcessor();
+            if (typeof osmdbtProcess === 'object') {
+              await osmdbtProcess.destroy();
             }
           },
         });
