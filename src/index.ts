@@ -29,7 +29,7 @@ void getApp()
       });
 
       setTimeout(() => {
-        console.error('Forcing shutdown...');
+        logger.error('Forcing shutdown...');
         process.exit(1);
       }, FORCE_SHUTDOWN_TIMEOUT_MS);
     }
