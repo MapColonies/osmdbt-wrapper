@@ -59,6 +59,7 @@ export class OsmdbtService {
   public static isJobActive(): boolean {
     return OsmdbtService.isActiveJob;
   }
+
   public async startJob(): Promise<void> {
     let jobExitCode: (typeof ExitCodes)[keyof typeof ExitCodes] = ExitCodes.SUCCESS;
 
