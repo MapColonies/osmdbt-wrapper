@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/naming-convention */ // span attributes and aws-sdk/client-s3 does not follow convention
 import { DependencyContainer, FactoryFunction } from 'tsyringe';
 import { S3Client } from '@aws-sdk/client-s3';
 import { ATTR_RPC_SYSTEM, ATTR_RPC_SERVICE, ATTR_NETWORK_TRANSPORT, ATTR_SERVER_ADDRESS } from '@opentelemetry/semantic-conventions/incubating';
@@ -10,8 +9,11 @@ import { ObjectStorageConfig } from '../common/interfaces';
 import { S3Attributes } from '../common/tracing/s3';
 import { createS3Repositry } from './s3Repository';
 
-const initializeS3Client = (logger: Logger, config: ObjectStorageConfig): S3Client => {
-  const { endpoint, bucketName, acl, region, credentials } = config;
+export const s3ClientFactory: FactoryFunction<S3Client> = (container: DependencyContainer): S3Client => {
+  const config = container.resolve<ConfigType>(SERVICES.CONFIG);
+  const logger = container.resolve<Logger>(SERVICES.LOGGER);
+
+  const { endpoint, bucketName, acl, region, credentials } = config.get('objectStorage') as ObjectStorageConfig;
   logger.info({ msg: 'initializing s3 client', endpoint, bucketName, acl });
 
   return new S3Client({
@@ -23,16 +25,6 @@ const initializeS3Client = (logger: Logger, config: ObjectStorageConfig): S3Clie
       secretAccessKey: credentials.secretKey,
     },
   });
-};
-
-export const S3ClientFactory: FactoryFunction<S3Client> = (container: DependencyContainer): S3Client => {
-  const config = container.resolve<ConfigType>(SERVICES.CONFIG);
-  const logger = container.resolve<Logger>(SERVICES.LOGGER);
-
-  const objectStorageConfig = config.get('objectStorage') as ObjectStorageConfig;
-  const s3Client = initializeS3Client(logger, objectStorageConfig);
-
-  return s3Client;
 };
 
 export type S3Repository = ReturnType<typeof createS3Repositry>;

@@ -9,7 +9,7 @@ import { InjectionObject, registerDependencies } from '@common/dependencyRegistr
 import { SERVICES, SERVICE_NAME } from '@common/constants';
 import { getTracing } from '@common/tracing';
 import { ConfigType, getConfig } from './common/config';
-import { S3ClientFactory, s3RepositoryFactory } from './s3';
+import { s3ClientFactory, s3RepositoryFactory } from './s3';
 import { S3_REPOSITORY } from './s3/s3Repository';
 import { mediatorFactory } from './mediator';
 import { OSMDBT_PROCESSOR, OsmdbtProcessor, osmdbtProcessorFactory } from './osmdbt';
@@ -78,7 +78,7 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
     {
       token: SERVICES.S3_CLIENT,
       provider: {
-        useFactory: instancePerContainerCachingFactory(S3ClientFactory),
+        useFactory: instancePerContainerCachingFactory(s3ClientFactory),
       },
     },
     {
