@@ -34,7 +34,6 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
         failurePenalty *= MILLISECONDS_IN_SECOND;
         logger.error({ msg: 'Error during osmdbt job', error: res.error, failurePenalty });
         await delay(failurePenalty);
-        throw res.error;
       }
       logger.info({ msg: 'Finished osmdbt job' });
       return;
