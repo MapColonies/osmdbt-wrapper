@@ -175,6 +175,20 @@ export class OsmdbtService {
     }
   }
 
+  protected processExitSafely(exitCode: number): void {
+    this.logger.info({ msg: 'exiting safely', exitCode });
+
+    const rootSpanStatus: SpanStatus = { code: SpanStatusCode.UNSET };
+    rootSpanStatus.code = exitCode == (ExitCodes.SUCCESS || ExitCodes.TERMINATED) ? SpanStatusCode.OK : SpanStatusCode.ERROR;
+
+    this.rootJobSpan?.setAttributes({ [JobAttributes.JOB_EXITCODE]: exitCode });
+
+    this.rootJobSpan?.setStatus(rootSpanStatus);
+    this.rootJobSpan?.end();
+
+    OsmdbtService.isActiveJob = false;
+  }
+
   private async prepareEnvironment(span?: Span): Promise<void> {
     const { logDir, changesDir, runDir } = this.osmdbtConfig;
     this.logger.debug({ msg: 'preparing environment', osmdbtDirs: { logDir, changesDir, runDir } });
@@ -258,20 +272,6 @@ export class OsmdbtService {
     }
     handleSpanOnSuccess(span);
     return sequenceNumber;
-  }
-
-  private processExitSafely(exitCode: number): void {
-    this.logger.info({ msg: 'exiting safely', exitCode });
-
-    const rootSpanStatus: SpanStatus = { code: SpanStatusCode.UNSET };
-    rootSpanStatus.code = exitCode == (ExitCodes.SUCCESS || ExitCodes.TERMINATED) ? SpanStatusCode.OK : SpanStatusCode.ERROR;
-
-    this.rootJobSpan?.setAttributes({ [JobAttributes.JOB_EXITCODE]: exitCode });
-
-    this.rootJobSpan?.setStatus(rootSpanStatus);
-    this.rootJobSpan?.end();
-
-    OsmdbtService.isActiveJob = false;
   }
 
   private async uploadDiff(sequenceNumber: string, span?: Span): Promise<void> {
