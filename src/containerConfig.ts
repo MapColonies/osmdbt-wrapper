@@ -1,17 +1,17 @@
 import { getOtelMixin } from '@map-colonies/telemetry';
 import { CleanupRegistry } from '@map-colonies/cleanup-registry';
+import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
 import { instancePerContainerCachingFactory } from 'tsyringe';
 import { trace } from '@opentelemetry/api';
 import { Registry } from 'prom-client';
 import { DependencyContainer } from 'tsyringe/dist/typings/types';
-import jsLogger from '@map-colonies/js-logger';
+import jsLogger, { Logger } from '@map-colonies/js-logger';
 import { InjectionObject, registerDependencies } from '@common/dependencyRegistration';
 import { SERVICES, SERVICE_NAME } from '@common/constants';
 import { getTracing } from '@common/tracing';
 import { ConfigType, getConfig } from './common/config';
 import { s3ClientFactory, s3RepositoryFactory } from './s3';
 import { S3_REPOSITORY } from './s3/s3Repository';
-import { mediatorFactory } from './mediator';
 import { OSMDBT_PROCESSOR, OsmdbtProcessor, osmdbtProcessorFactory } from './osmdbt';
 
 export interface RegisterOptions {
@@ -90,7 +90,20 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
     {
       token: SERVICES.MEDIATOR,
       provider: {
-        useFactory: instancePerContainerCachingFactory(mediatorFactory),
+        useFactory: instancePerContainerCachingFactory((container) => {
+          const config = container.resolve<ConfigType>(SERVICES.CONFIG);
+          const logger = container.resolve<Logger>(SERVICES.LOGGER);
+
+          const arstotzkaConfig = config.get('arstotzka');
+
+          if (!arstotzkaConfig?.enabled) {
+            const msg = 'Mediator is not enabled, but it is required for the application to run';
+            logger.fatal({ msg });
+            throw new Error(msg);
+          }
+
+          return new StatefulMediator({ ...arstotzkaConfig.mediator, serviceId: arstotzkaConfig.serviceId, logger });
+        }),
       },
     },
     {

@@ -7,6 +7,7 @@ import { Span, SpanKind, SpanStatus, SpanStatusCode, context as contextAPI, type
 import { inject, injectable, singleton } from 'tsyringe';
 import { handleSpanOnError, handleSpanOnSuccess } from '@map-colonies/telemetry';
 import { ATTR_RPC_SYSTEM } from '@opentelemetry/semantic-conventions/incubating';
+import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
 import {
   BACKUP_DIR_NAME,
   DIFF_FILE_EXTENTION,
@@ -21,7 +22,6 @@ import {
 } from '@src/common/constants';
 import { ErrorWithExitCode } from '@src/common/errors';
 import { JobAttributes, ROOT_JOB_SPAN_NAME } from '@src/common/tracing/job';
-import { type Mediator } from '@src/mediator';
 import { type ConfigType } from '@src/common/config';
 import { AppConfig, OsmdbtConfig, OsmiumConfig } from '@src/common/interfaces';
 import { promisifySpan } from '@src/common/tracing/util';
@@ -46,7 +46,7 @@ export class OsmdbtService {
     @inject(SERVICES.LOGGER) private readonly logger: Logger,
     @inject(SERVICES.TRACER) private readonly tracer: Tracer,
     @inject(SERVICES.CONFIG) private readonly config: ConfigType,
-    @inject(SERVICES.MEDIATOR) private readonly mediator: Mediator,
+    @inject(SERVICES.MEDIATOR) private readonly mediator: StatefulMediator,
     @inject(S3Manager) private readonly s3Manager: S3Manager
   ) {
     this.appConfig = this.config.get('app') as AppConfig;
