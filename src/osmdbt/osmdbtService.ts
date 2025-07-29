@@ -77,15 +77,22 @@ export class OsmdbtService {
 
       await this.tracer.startActiveSpan('prepare-environment', {}, contextAPI.active(), this.prepareEnvironment.bind(this));
 
-      await this.tracer.startActiveSpan('get-start-state', {}, contextAPI.active(), async (span) => {
-        return this.s3Manager.getStateFileFromS3ToFs(
-          {
-            path: this.osmdbtStatePath,
-            backupPath: this.osmdbtStateBackupPath,
-          },
-          span
+      const getStateFileFromS3ToFsResponse = await this.tracer.startActiveSpan('get-start-state', {}, contextAPI.active(), async (span) => {
+        return tryCatch(
+          this.s3Manager.getStateFileFromS3ToFs(
+            {
+              path: this.osmdbtStatePath,
+              backupPath: this.osmdbtStateBackupPath,
+            },
+            span
+          )
         );
       });
+
+      if (getStateFileFromS3ToFsResponse.error) {
+        return this.processExitSafely(ExitCodes.S3_ERROR);
+      }
+
       const startState = await this.tracer.startActiveSpan(FsSpanName.FS_READ, {}, contextAPI.active(), this.getSequenceNumber.bind(this));
 
       this.logger.info({ msg: 'starting job with fetched start state from object storage', startState });
@@ -118,7 +125,12 @@ export class OsmdbtService {
 
       this.logger.info({ msg: 'diff was created, starting the upload of end state diff', startState, endState });
 
-      await this.tracer.startActiveSpan('upload-diff', {}, contextAPI.active(), async (span) => this.uploadDiff(endState, span));
+      const uploadDiffResponse = await this.tracer.startActiveSpan('upload-diff', {}, contextAPI.active(), async (span) =>
+        tryCatch(this.uploadDiff(endState, span))
+      );
+      if (uploadDiffResponse.error) {
+        return this.processExitSafely(ExitCodes.S3_ERROR);
+      }
 
       this.logger.info({ msg: 'finished the upload of the diff, uploading end state file', startState, endState });
 
@@ -128,6 +140,7 @@ export class OsmdbtService {
         contextAPI.active(),
         async () => readFile(this.osmdbtStatePath)
       );
+
       await this.s3Manager.uploadFile(STATE_FILE, endStateFileBuffer);
 
       this.logger.info({ msg: 'finished the upload of the end state file, commiting changes', startState, endState });
@@ -135,6 +148,7 @@ export class OsmdbtService {
       const commitResult = await this.tracer.startActiveSpan('commit-changes', {}, contextAPI.active(), async (span) =>
         tryCatch(this.commitChanges(span))
       );
+
       if (commitResult.error) {
         this.logger.error({
           err: commitResult.error,
@@ -143,16 +157,15 @@ export class OsmdbtService {
           endState,
         });
 
-        const rollbakcResponse = await this.tracer.startActiveSpan('rollback', {}, contextAPI.active(), async (span) =>
+        const rollbackResponse = await this.tracer.startActiveSpan('rollback', {}, contextAPI.active(), async (span) =>
           tryCatch(this.rollback(span))
         );
-        if (rollbakcResponse.error) {
+        if (rollbackResponse.error) {
           return this.processExitSafely(ExitCodes.ROLLBACK_FAILURE_ERROR);
         }
         this.rootJobSpan.setAttribute(JobAttributes.JOB_STATE_END, startState);
         throw commitResult.error;
       }
-
       const metadata: Record<string, unknown> = {};
       if (this.appConfig.shouldCollectInfo) {
         metadata.info = await this.collectInfo(endState);
