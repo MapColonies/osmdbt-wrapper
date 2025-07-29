@@ -8,7 +8,6 @@ import { ExitCodes, SERVICE_NAME } from '@src/common/constants';
 import { tracingFactory } from '@src/common/tracing';
 import { OsmdbtService } from '@src/osmdbt/osmdbtService';
 import { S3Manager } from '@src/s3/s3Manager';
-import { promisifySpan } from '@src/common/tracing/util';
 
 jest.mock('fs/promises');
 
@@ -396,14 +395,48 @@ describe('OsmdbtService', () => {
       jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue(undefined);
       jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockResolvedValue(undefined);
       jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockResolvedValue(undefined);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       jest.spyOn(osmdbtService, 'collectInfo' as keyof OsmdbtService).mockRejectedValue(new Error('fail collectInfo'));
 
       const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
       await osmdbtService.startJob();
       expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.GENERAL_ERROR);
-      // await expect(osmdbtService.startJob()).rejects.toThrow('fail collectInfo');
     });
+
+    it('should collectInfo true', async () => {
+      reserveAccess.mockResolvedValue(undefined);
+      const tracer = osmdbtService['tracer'];
+      const mockSpan = {
+        setAttribute: jest.fn(),
+        setAttributes: jest.fn(),
+        spanContext: jest.fn(),
+        addEvent: jest.fn(),
+        addLink: jest.fn(),
+        addLinks: jest.fn(),
+        end: jest.fn(),
+        isRecording: jest.fn(),
+        recordException: jest.fn(),
+        setStatus: jest.fn(),
+        updateName: jest.fn(),
+      };
+
+      (osmdbtService as unknown as { appConfig: { [x: string]: unknown; shouldCollectInfo: boolean } }).appConfig = {
+        ...osmdbtService['appConfig'],
+        shouldCollectInfo: true,
+      };
+
+      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
+      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
+      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
+      //@ts-expect-error
+      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue('{"test": "test"}');
+      jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockResolvedValue(undefined);
+      jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockResolvedValue(undefined);
+
+      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
+      await osmdbtService.startJob();
+      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.SUCCESS);
+    });
+
     it('should handle error in processExitSafely', async () => {
       reserveAccess.mockResolvedValue(undefined);
       const tracer = osmdbtService['tracer'];
