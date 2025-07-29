@@ -1,15 +1,18 @@
 import * as fsPromises from 'fs/promises';
 import { readFile } from 'fs/promises';
+import execa from 'execa';
 import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
 import jsLogger from '@map-colonies/js-logger';
 import { trace } from '@opentelemetry/api';
 import { getConfig, initConfig } from '@src/common/config';
-import { ExitCodes, SERVICE_NAME } from '@src/common/constants';
+import { Executable, ExitCodes, SERVICE_NAME } from '@src/common/constants';
 import { tracingFactory } from '@src/common/tracing';
 import { OsmdbtService } from '@src/osmdbt/osmdbtService';
 import { S3Manager } from '@src/s3/s3Manager';
+import { ErrorWithExitCode } from '@src/common/errors';
 
 jest.mock('fs/promises');
+jest.mock('execa');
 
 let osmdbtService: OsmdbtService;
 describe('OsmdbtService', () => {
@@ -463,6 +466,112 @@ describe('OsmdbtService', () => {
         throw new Error('fail processExitSafely');
       });
       await expect(osmdbtService.startJob()).rejects.toThrow('fail processExitSafely');
+    });
+  });
+
+  describe('runCommand', () => {
+    const mockedExeca = execa as jest.MockedFunction<typeof execa>;
+
+    test.each<{
+      executable: Executable;
+      command: string;
+      commandArgs: string[];
+      resolvedExeca: execa.ExecaReturnValue<Buffer>;
+    }>([
+      {
+        executable: 'osmdbt',
+        command: 'GET_LOG',
+        commandArgs: [],
+        resolvedExeca: {
+          command: 'osmdbt GET_LOG',
+          escapedCommand: 'osmdbt GET_LOG',
+          exitCode: 0,
+          failed: false,
+          killed: false,
+          timedOut: false,
+          isCanceled: false,
+          signal: undefined,
+          stdout: Buffer.from('mocked buffer'),
+          stderr: Buffer.from(''),
+          all: undefined,
+        },
+      },
+    ])('should osmdbt runCommand with exit code 0', async ({ executable, command, commandArgs, resolvedExeca }) => {
+      reserveAccess.mockResolvedValue(undefined);
+
+      mockedExeca.mockResolvedValue(resolvedExeca);
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      const result = await (
+        osmdbtService as unknown as { runCommand: (executable: string, command: string, commandArgs: string[]) => Promise<string> }
+      ).runCommand(executable, command, commandArgs);
+      expect(result.toString()).toBe(resolvedExeca.stdout.toString());
+    });
+
+    test.each<{
+      executable: Executable;
+      command: string;
+      commandArgs?: string[];
+      resolvedExeca: execa.ExecaReturnValue<Buffer>;
+    }>([
+      {
+        executable: 'osmdbt',
+        command: 'GET_LOG',
+        commandArgs: [],
+        resolvedExeca: {
+          command: 'osmdbt GET_LOG',
+          escapedCommand: 'osmdbt GET_LOG',
+          exitCode: 1,
+          failed: false,
+          killed: false,
+          timedOut: false,
+          isCanceled: false,
+          signal: undefined,
+          stdout: Buffer.from('mocked buffer'),
+          stderr: Buffer.from('mocked error'),
+          all: undefined,
+        },
+      },
+      {
+        executable: 'osmium',
+        command: 'GET_LOG',
+        resolvedExeca: {
+          command: 'osmium GET_LOG',
+          escapedCommand: 'osmium GET_LOG',
+          exitCode: 1,
+          failed: false,
+          killed: false,
+          timedOut: false,
+          isCanceled: false,
+          signal: undefined,
+          stdout: Buffer.from(''),
+          stderr: Buffer.from(''),
+          all: undefined,
+        },
+      },
+    ])('should fail runCommand', async ({ executable, command, commandArgs, resolvedExeca }) => {
+      reserveAccess.mockResolvedValue(undefined);
+
+      mockedExeca.mockResolvedValue(resolvedExeca);
+
+      await expect(
+        (osmdbtService as unknown as { runCommand: (executable: string, command: string, commandArgs?: string[]) => Promise<string> }).runCommand(
+          executable,
+          command,
+          commandArgs
+        )
+      ).rejects.toThrow(resolvedExeca.stderr.toString());
+    });
+
+    it('should throw "executable errored" when error is not instance of Error', async () => {
+      mockedExeca.mockRejectedValueOnce('non-error rejection');
+
+      await expect(
+        (osmdbtService as unknown as { runCommand: (executable: string, command: string, commandArgs?: string[]) => Promise<string> }).runCommand(
+          'osmdbt',
+          'TEST'
+        )
+      ).rejects.toThrow(new ErrorWithExitCode('osmdbt errored', ExitCodes.OSMDBT_ERROR));
     });
   });
 });
