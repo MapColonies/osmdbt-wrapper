@@ -7,7 +7,7 @@ import { ConfigType } from '@src/common/config';
 import { SERVICES } from '../common/constants';
 import { ObjectStorageConfig } from '../common/interfaces';
 import { S3Attributes } from '../common/tracing/s3';
-import { createS3Repositry } from './s3Repository';
+import { createS3Repositry, S3Repository } from './s3Repository';
 
 export const s3ClientFactory: FactoryFunction<S3Client> = (container: DependencyContainer): S3Client => {
   const config = container.resolve<ConfigType>(SERVICES.CONFIG);
@@ -26,8 +26,6 @@ export const s3ClientFactory: FactoryFunction<S3Client> = (container: Dependency
     },
   });
 };
-
-export type S3Repository = ReturnType<typeof createS3Repositry>;
 
 export const s3RepositoryFactory: FactoryFunction<S3Repository> = (container: DependencyContainer) => {
   const config = container.resolve<ConfigType>(SERVICES.CONFIG);
