@@ -279,10 +279,8 @@ export class OsmdbtService {
       throw error;
     }
 
-    const sequenceNumber = matchResult[0].split('=')[1];
-    if (typeof sequenceNumber != 'string') {
-      throw new ErrorWithExitCode(`sequenceNumber is not a string, got ${typeof sequenceNumber}`, ExitCodes.INVALID_STATE_FILE_ERROR);
-    }
+    const sequenceNumber = matchResult[0].split('=')[1]!;
+
     handleSpanOnSuccess(span);
     return sequenceNumber;
   }
