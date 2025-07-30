@@ -613,7 +613,48 @@ describe('OsmdbtService', () => {
       const error = new Error('some error');
       mockRename.mockRejectedValueOnce(error);
 
-      await expect((osmdbtService as unknown as { markLogFilesForCatchup: () => Promise<string> }).markLogFilesForCatchup()).rejects.toBe(error);
+    });
+  });
+
+  describe('postCatchupCleanup', () => {
+    interface PostCatchupCleanup {
+      postCatchupCleanup: () => Promise<string>;
+    }
+    const mockReaddir = fsPromises.readdir as jest.MockedFunction<typeof fsPromises.readdir>;
+    const mockUnlink = fsPromises.unlink as jest.MockedFunction<typeof fsPromises.unlink>;
+
+    it('should postCatchupCleanup successfully', async () => {
+      mockReaddir.mockResolvedValueOnce(['test'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
+      mockUnlink.mockResolvedValueOnce(undefined);
+
+      await expect((osmdbtService as unknown as PostCatchupCleanup).postCatchupCleanup()).resolves.toBeUndefined();
+    });
+
+    it('should postCatchupCleanup throw error', async () => {
+      const error = new Error('some error');
+      mockReaddir.mockRejectedValueOnce(error);
+
+      await expect((osmdbtService as unknown as PostCatchupCleanup).postCatchupCleanup()).rejects.toBe(error);
+    });
+  });
+
+  describe('prepareEnvironment', () => {
+    interface PrepareEnvironment {
+      prepareEnvironment: () => Promise<string>;
+    }
+    const mockMkdir = fsPromises.mkdir as jest.MockedFunction<typeof fsPromises.mkdir>;
+
+    it('should prepareEnvironment successfully', async () => {
+      mockMkdir.mockResolvedValueOnce(undefined);
+
+      await expect((osmdbtService as unknown as PrepareEnvironment).prepareEnvironment()).resolves.toBeUndefined();
+    });
+
+    it('should prepareEnvironment because mkdir throws error', async () => {
+      const error = new Error('some error');
+      mockMkdir.mockRejectedValueOnce(error);
+
+      await expect((osmdbtService as unknown as PrepareEnvironment).prepareEnvironment()).rejects.toBe(error);
     });
   });
 });
