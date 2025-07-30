@@ -187,15 +187,22 @@ describe('OsmdbtService', () => {
   });
 
   describe('uploadDiff', () => {
-    it.skip('should upload files successfully', async () => {
-      //TODO: work on test
-      jest.spyOn(osmdbtService as unknown as { osmdbtConfig: { changesDir: string } }, 'osmdbtConfig', 'get').mockReturnValue({ changesDir: '' });
-      jest.spyOn(osmdbtService as unknown as { config: { isEnabled: boolean } }, 'config', 'get').mockReturnValue({ isEnabled: false });
-      jest.spyOn(fsPromises, 'readFile').mockResolvedValue(Buffer.from('data'));
-      jest
-        .spyOn(osmdbtService as unknown as { s3Manager: { uploadFile: jest.Mock } }, 's3Manager', 'get')
-        .mockReturnValue({ uploadFile: jest.fn().mockResolvedValue(undefined) });
-      await (osmdbtService as unknown as { uploadDiff: (sequenceNumber: string) => Promise<void> }).uploadDiff('123');
+    interface UploadDiff {
+      uploadDiff: (sequenceNumber: string) => Promise<string>;
+    }
+
+    it('should run uploadDiff successfully', async () => {
+      const serviceWithConfig = osmdbtService as unknown as { config: { get: (key: string) => unknown } };
+      const originalGet = serviceWithConfig.config.get.bind(serviceWithConfig.config);
+
+      jest.spyOn(serviceWithConfig.config, 'get').mockImplementation((key: string) => {
+        if (key === 'telemetry.tracing') {
+          return { isEnabled: true };
+        }
+        return originalGet(key);
+      });
+
+      await expect((osmdbtService as unknown as UploadDiff).uploadDiff('123')).resolves.toBeUndefined();
     });
 
     it('should handle error in file upload', async () => {
