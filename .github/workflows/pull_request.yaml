@@ -3,6 +3,29 @@ name: pull_request
 on: [pull_request]
 
 jobs:
+  tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node: [20.x, 22.x]
+
+    steps:
+      - name: Check out TS Project Git repository
+        uses: actions/checkout@v4
+
+      - name: Init nodejs
+        uses: ./.github/actions/init-npm
+
+      - name: Run tests (unit)
+        run: npm run test:unit
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Test Reporters ${{ matrix.node }}
+          path: ./reports/**
+
   eslint:
     name: Run TS Project eslint
     runs-on: ubuntu-latest
