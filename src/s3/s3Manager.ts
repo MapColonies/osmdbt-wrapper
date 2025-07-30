@@ -9,8 +9,7 @@ import { ObjectStorageConfig } from '@src/common/interfaces';
 import { handleSpanOnError, handleSpanOnSuccess, promisifySpan } from '@src/common/tracing/util';
 import { FsAttributes, FsSpanName } from '@src/common/tracing/fs';
 import { streamToString } from '@src/util';
-import { S3_REPOSITORY } from './s3Repository';
-import { type S3Repository } from '.';
+import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 
 @singleton()
 @injectable()
@@ -53,7 +52,7 @@ export class S3Manager {
     span?: Span
   ): Promise<void> {
     this.logger.debug({ msg: 'getting state file from s3' });
-    let stateFileStream;
+    let stateFileStream: NodeJS.ReadStream;
 
     try {
       stateFileStream = await this.s3Repository.getObjectWrapper(this.objectStorageConfig.bucketName, STATE_FILE);
@@ -90,6 +89,7 @@ export class S3Manager {
     } catch (error) {
       this.logger.error({ err: error, msg: 'failed to put file to s3', fileName });
       handleSpanOnError(span, error, this.errorCounter);
+      throw error;
     }
   }
 }
