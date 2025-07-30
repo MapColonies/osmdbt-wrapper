@@ -576,35 +576,41 @@ describe('OsmdbtService', () => {
   });
 
   describe('rollback', () => {
+    interface Rollback {
+      rollback: () => Promise<string>;
+    }
     it('should rollback successfully', async () => {
       uploadFile.mockResolvedValueOnce(true);
 
-      await expect((osmdbtService as unknown as { rollback: () => Promise<string> }).rollback()).resolves.toBeUndefined();
+      await expect((osmdbtService as unknown as Rollback).rollback()).resolves.toBeUndefined();
     });
 
     it('should fail rollback', async () => {
       const error = new Error('S3 upload file mock error');
       uploadFile.mockRejectedValueOnce(error);
 
-      await expect((osmdbtService as unknown as { rollback: () => Promise<string> }).rollback()).rejects.toThrow(error);
+      await expect((osmdbtService as unknown as Rollback).rollback()).rejects.toThrow(error);
     });
   });
 
   describe('markLogFilesForCatchup', () => {
+    interface MarkLogFilesForCatchup {
+      markLogFilesForCatchup: () => Promise<string>;
+    }
     const mockReaddir = fsPromises.readdir as jest.MockedFunction<typeof fsPromises.readdir>;
     const mockRename = fsPromises.rename as jest.MockedFunction<typeof fsPromises.rename>;
 
     it('should markLogFilesForCatchup successfully', async () => {
       mockReaddir.mockResolvedValueOnce(['test', 'test.done'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
 
-      await expect((osmdbtService as unknown as { markLogFilesForCatchup: () => Promise<string> }).markLogFilesForCatchup()).resolves.toBeUndefined();
+      await expect((osmdbtService as unknown as MarkLogFilesForCatchup).markLogFilesForCatchup()).resolves.toBeUndefined();
     });
 
     it('should markLogFilesForCatchup fail because readdir fails', async () => {
       const error = new Error('some error');
       mockReaddir.mockRejectedValueOnce(error);
 
-      await expect((osmdbtService as unknown as { markLogFilesForCatchup: () => Promise<string> }).markLogFilesForCatchup()).rejects.toBe(error);
+      await expect((osmdbtService as unknown as MarkLogFilesForCatchup).markLogFilesForCatchup()).rejects.toBe(error);
     });
 
     it('should markLogFilesForCatchup fail because rename fails', async () => {
@@ -613,6 +619,7 @@ describe('OsmdbtService', () => {
       const error = new Error('some error');
       mockRename.mockRejectedValueOnce(error);
 
+      await expect((osmdbtService as unknown as MarkLogFilesForCatchup).markLogFilesForCatchup()).rejects.toBe(error);
     });
   });
 
