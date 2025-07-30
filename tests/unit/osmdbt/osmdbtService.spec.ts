@@ -574,4 +574,19 @@ describe('OsmdbtService', () => {
       ).rejects.toThrow(new ErrorWithExitCode('osmdbt errored', ExitCodes.OSMDBT_ERROR));
     });
   });
+
+  describe('rollback', () => {
+    it('should rollback successfully', async () => {
+      uploadFile.mockResolvedValueOnce(true);
+
+      await expect((osmdbtService as unknown as { rollback: () => Promise<string> }).rollback()).resolves.toBeUndefined();
+    });
+
+    it('should fail rollback', async () => {
+      const error = new Error('S3 upload file mock error');
+      uploadFile.mockRejectedValueOnce(error);
+
+      await expect((osmdbtService as unknown as { rollback: () => Promise<string> }).rollback()).rejects.toThrow(error);
+    });
+  });
 });
