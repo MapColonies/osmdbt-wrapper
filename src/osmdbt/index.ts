@@ -55,7 +55,7 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
           await runFn(failurePenaltySeconds);
         },
         {
-          noOverlap: false,
+          noOverlap: true,
         }
       );
       cachedProcessorResult = scheduledTask;
