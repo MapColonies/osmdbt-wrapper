@@ -15,8 +15,9 @@ import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 @injectable()
 export class S3Manager {
   private readonly objectStorageConfig: ObjectStorageConfig;
-  private readonly filesCounter?: PromCounter;
-  private readonly errorCounter?: PromCounter;
+  private readonly filesCounter?: PromCounter<'rootSpan'>;
+  private readonly errorCounter?: PromCounter<'rootSpan'>;
+
   public constructor(
     @inject(S3_REPOSITORY) private readonly s3Repository: S3Repository,
     @inject(SERVICES.CONFIG) private readonly config: ConfigType,
@@ -82,7 +83,7 @@ export class S3Manager {
 
     try {
       await this.s3Repository.putObjectWrapper(this.objectStorageConfig.bucketName, fileName, buffer);
-      this.filesCounter?.inc({ rootSpan: span?.spanContext().traceId });
+      this.filesCounter?.inc();
       handleSpanOnSuccess(span);
     } catch (error) {
       this.logger.error({ err: error, msg: 'failed to put file to s3', fileName });
