@@ -10,6 +10,11 @@ import { streamToString } from '@src/util';
 import { FsRepository } from '@src/fs/fsRepository';
 import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 
+interface GetStateFileFromS3ToFsParams {
+  path: string;
+  backupPath: string;
+}
+
 @singleton()
 @injectable()
 export class S3Manager {
@@ -40,16 +45,7 @@ export class S3Manager {
     }
   }
 
-  public async getStateFileFromS3ToFs(
-    {
-      path,
-      backupPath,
-    }: {
-      path: string;
-      backupPath: string;
-    },
-    span?: Span
-  ): Promise<void> {
+  public async getStateFileFromS3ToFs({ path, backupPath }: GetStateFileFromS3ToFsParams, span?: Span): Promise<void> {
     this.logger.debug({ msg: 'getting state file from s3' });
     let stateFileStream: NodeJS.ReadStream;
 
