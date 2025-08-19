@@ -12,7 +12,7 @@ import { getTracing } from '@common/tracing';
 import { ConfigType, getConfig } from './common/config';
 import { s3ClientFactory, s3RepositoryFactory } from './s3';
 import { S3_REPOSITORY } from './s3/s3Repository';
-import { OSMDBT_PROCESSOR, OsmdbtProcessor, osmdbtProcessorFactory } from './osmdbt';
+import { isSingleTask, OSMDBT_PROCESSOR, OsmdbtProcessor, osmdbtProcessorFactory } from './osmdbt';
 
 export interface RegisterOptions {
   override?: InjectionObject<unknown>[];
@@ -118,8 +118,8 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
         cleanupRegistry.register({
           id: OSMDBT_PROCESSOR,
           func: async () => {
-            const osmdbtProcess = await osmdbtProcessor();
-            if (typeof osmdbtProcess === 'object') {
+            const osmdbtProcess = await osmdbtProcessor(true);
+            if (!isSingleTask(osmdbtProcess)) {
               await osmdbtProcess.destroy();
             }
           },
