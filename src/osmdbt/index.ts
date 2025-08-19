@@ -10,23 +10,24 @@ import { OsmdbtService } from './osmdbtService';
 
 type OsmdbtProcessorFuncReturnType = Promise<ScheduledTask | void>;
 
-let osmdbtProcessor: OsmdbtProcessor | undefined = undefined;
+let cachedProcessorResult: Awaited<OsmdbtProcessorFuncReturnType> | undefined = undefined;
 
 export const OSMDBT_PROCESSOR = Symbol('OsmdbtProcessor');
 
 export type OsmdbtProcessor = () => OsmdbtProcessorFuncReturnType;
 
 export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (container: DependencyContainer) => {
-  if (osmdbtProcessor !== undefined) {
-    return osmdbtProcessor;
-  }
   const logger = container.resolve<Logger>(SERVICES.LOGGER);
   const config = container.resolve<ConfigType>(SERVICES.CONFIG);
 
   const appConfig = config.get('app') as AppConfig;
   const osmdbtService = container.resolve(OsmdbtService);
 
-  osmdbtProcessor = async (): OsmdbtProcessorFuncReturnType => {
+  const osmdbtProcessor: OsmdbtProcessor = async (): OsmdbtProcessorFuncReturnType => {
+    if (cachedProcessorResult !== undefined) {
+      return cachedProcessorResult;
+    }
+
     const runFn = async (failurePenalty: number = 0): Promise<void> => {
       logger.info({ msg: 'Starting osmdbt job' });
       const res = await tryCatch(osmdbtService.startJob());
@@ -57,11 +58,12 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
           noOverlap: false,
         }
       );
-
+      cachedProcessorResult = scheduledTask;
       return scheduledTask;
     } else {
       logger.info({ msg: 'Run mode: Running osmdbt job once' });
       await runFn();
+      return cachedProcessorResult;
     }
   };
 
