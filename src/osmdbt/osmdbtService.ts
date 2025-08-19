@@ -7,12 +7,14 @@ import { Span, SpanKind, SpanStatus, SpanStatusCode, context as contextAPI, type
 import { inject, injectable, singleton } from 'tsyringe';
 import { handleSpanOnError, handleSpanOnSuccess } from '@map-colonies/telemetry';
 import { ATTR_RPC_SYSTEM } from '@opentelemetry/semantic-conventions/incubating';
+import { Histogram, Counter as PromCounter, Registry as PromRegistry } from 'prom-client';
 import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
 import {
   BACKUP_DIR_NAME,
   DIFF_FILE_EXTENTION,
   Executable,
   ExitCodes,
+  MILLISECONDS_IN_SECOND,
   OSMDBT_BIN_PATH,
   OSMDBT_CONFIG_PATH,
   OSMDBT_DONE_LOG_PREFIX,
@@ -23,7 +25,7 @@ import {
 import { ErrorWithExitCode } from '@src/common/errors';
 import { JobAttributes, ROOT_JOB_SPAN_NAME } from '@src/common/tracing/job';
 import { type ConfigType } from '@src/common/config';
-import { AppConfig, OsmdbtConfig, OsmiumConfig } from '@src/common/interfaces';
+import { AppConfig, MetricsConfig, OsmdbtConfig, OsmiumConfig } from '@src/common/interfaces';
 import { promisifySpan } from '@src/common/tracing/util';
 import { FsAttributes, FsSpanName } from '@src/common/tracing/fs';
 import { S3Manager } from '@src/s3/s3Manager';
@@ -42,18 +44,45 @@ export class OsmdbtService {
   private readonly osmdbtStatePath: string;
   private readonly osmdbtStateBackupPath: string;
 
+  private readonly jobCounter?: PromCounter;
+  private readonly jobDurationHistogram?: Histogram;
+  private readonly commandDurationHistogram?: Histogram;
+
   public constructor(
     @inject(SERVICES.LOGGER) private readonly logger: Logger,
     @inject(SERVICES.TRACER) private readonly tracer: Tracer,
     @inject(SERVICES.CONFIG) private readonly config: ConfigType,
     @inject(SERVICES.MEDIATOR) private readonly mediator: StatefulMediator,
-    @inject(S3Manager) private readonly s3Manager: S3Manager
+    @inject(S3Manager) private readonly s3Manager: S3Manager,
+    @inject(SERVICES.METRICS) registry?: PromRegistry
   ) {
     this.appConfig = this.config.get('app') as AppConfig;
     this.osmdbtConfig = this.config.get('osmdbt') as OsmdbtConfig;
     this.globalOsmdbtArgs = this.osmdbtConfig.verbose ? ['-c', OSMDBT_CONFIG_PATH] : ['-c', OSMDBT_CONFIG_PATH, '-q'];
     this.osmdbtStatePath = join(this.osmdbtConfig.changesDir, STATE_FILE);
     this.osmdbtStateBackupPath = join(this.osmdbtConfig.changesDir, BACKUP_DIR_NAME, STATE_FILE);
+
+    if (registry !== undefined) {
+      const { osmdbtCommandDurationSeconds, osmdbtJobDurationSeconds } = (this.config.get('telemetry.metrics') as MetricsConfig).buckets;
+      this.jobCounter = new PromCounter({
+        name: 'osmdbt_job_count',
+        help: 'The total number of osmdbt jobs started',
+        registers: [registry],
+      });
+      this.jobDurationHistogram = new Histogram({
+        name: 'osmdbt_job_duration_seconds',
+        help: 'Duration of osmdbt job execution in seconds',
+        labelNames: ['status', 'exit_code'] as const,
+        buckets: osmdbtCommandDurationSeconds,
+      });
+
+      this.commandDurationHistogram = new Histogram({
+        name: 'osmdbt_command_duration_seconds',
+        help: 'Duration of individual osmdbt commands in seconds',
+        labelNames: ['executable', 'command', 'status'] as const,
+        buckets: osmdbtJobDurationSeconds,
+      });
+    }
   }
 
   public static isJobActive(): boolean {
@@ -62,12 +91,15 @@ export class OsmdbtService {
 
   public async startJob(): Promise<void> {
     let jobExitCode: (typeof ExitCodes)[keyof typeof ExitCodes] = ExitCodes.SUCCESS;
+    const jobStartTime = Date.now();
 
     if (OsmdbtService.isActiveJob) {
       this.logger.warn({ msg: 'job is already active, skipping the start', currentRootJobSpan: this.rootJobSpan });
       return;
     }
+
     OsmdbtService.isActiveJob = true;
+    this.jobCounter?.inc();
 
     this.logger.info({ msg: 'new job has started' });
     this.rootJobSpan = this.tracer.startSpan(ROOT_JOB_SPAN_NAME, { attributes: { [JobAttributes.JOB_ROLLBACK]: false } });
@@ -184,6 +216,8 @@ export class OsmdbtService {
 
       await tryCatch(this.mediator.updateAction({ status: ActionStatus.FAILED, metadata: { error } }));
     } finally {
+      const jobDurationSeconds = (Date.now() - jobStartTime) / MILLISECONDS_IN_SECOND;
+      this.jobDurationHistogram?.observe({ exitCode: jobExitCode.toString() }, jobDurationSeconds);
       this.processExitSafely(jobExitCode);
     }
   }
@@ -235,11 +269,14 @@ export class OsmdbtService {
       [ExecutableAttributes.EXECUTABLE_COMMAND]: command,
       [ExecutableAttributes.EXECUTABLE_COMMAND_ARGS]: args.join(' '),
     });
+    let exitCode: number = ExitCodes.SUCCESS;
 
+    const commandStartTime = Date.now();
     try {
       const spawnedChild = execa(executablePath, args, { encoding: 'utf-8' });
 
-      const { exitCode, stderr, stdout } = await spawnedChild;
+      const { exitCode: commandExitCode, stderr, stdout } = await spawnedChild;
+      exitCode = commandExitCode;
 
       if (exitCode !== 0) {
         throw new ErrorWithExitCode(stderr.length > 0 ? stderr : `osmdbt ${command} failed with exit code ${exitCode}`, ExitCodes.OSMDBT_ERROR);
@@ -252,12 +289,16 @@ export class OsmdbtService {
       this.logger.error({ msg: 'failure occurred during command execution', executable: 'osmdbt', command, args });
 
       handleSpanOnError(span, error);
-      const exitCode = executable === 'osmdbt' ? ExitCodes.OSMDBT_ERROR : ExitCodes.OSMIUM_ERROR;
+      exitCode = executable === 'osmdbt' ? ExitCodes.OSMDBT_ERROR : ExitCodes.OSMIUM_ERROR;
       if (error instanceof Error) {
         throw new ErrorWithExitCode(error.message, exitCode);
       }
 
       throw new ErrorWithExitCode(`${executable} errored`, exitCode);
+    } finally {
+      const commandDurationSeconds = (Date.now() - commandStartTime) / MILLISECONDS_IN_SECOND;
+
+      this.commandDurationHistogram?.observe({ executable, command, exitCode }, commandDurationSeconds);
     }
   }
 

@@ -45,3 +45,10 @@ export interface ArstotzkaConfig {
   serviceId: string;
   mediator: MediatorConfig;
 }
+
+export interface MetricsConfig {
+  buckets: {
+    osmdbtJobDurationSeconds: number[];
+    osmdbtCommandDurationSeconds: number[];
+  };
+}

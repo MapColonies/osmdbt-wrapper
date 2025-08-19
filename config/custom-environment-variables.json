@@ -16,6 +16,12 @@
         "__format": "boolean"
       },
       "url": "TELEMETRY_TRACING_URL"
+    },
+    "metrics": {
+      "buckets": {
+        "osmdbtJobDurationSeconds": "TELEMETRY_METRICS_OSMDBT_JOB_DURATION_SECONDS",
+        "osmdbtCommandDurationSeconds": "TELEMETRY_METRICS_OSMDBT_COMMAND_DURATION_SECONDS"
+      }
     }
   },
   "app": {
