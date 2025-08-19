@@ -113,10 +113,11 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
       },
       postInjectionHook: (container: DependencyContainer): void => {
         const cleanupRegistry = container.resolve<CleanupRegistry>(SERVICES.CLEANUP_REGISTRY);
+        const osmdbtProcessor = container.resolve<OsmdbtProcessor>(OSMDBT_PROCESSOR);
+
         cleanupRegistry.register({
           id: OSMDBT_PROCESSOR,
           func: async () => {
-            const osmdbtProcessor = container.resolve<OsmdbtProcessor>(OSMDBT_PROCESSOR);
             const osmdbtProcess = await osmdbtProcessor();
             if (typeof osmdbtProcess === 'object') {
               await osmdbtProcess.destroy();
