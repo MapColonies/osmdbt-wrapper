@@ -1,4 +1,3 @@
-import { readFile, mkdir, appendFile, readdir, rename, unlink } from 'fs/promises';
 import { join } from 'path';
 import execa from 'execa';
 import { type Logger } from '@map-colonies/js-logger';
@@ -32,6 +31,7 @@ import { S3Manager } from '@src/s3/s3Manager';
 import { CommandSpanName, ExecutableAttributes } from '@src/common/tracing/executable';
 import { getDiffDirPathComponents } from '@src/util';
 import { tryCatch } from '@src/try-catch';
+import { FsRepository } from '@src/fs/fsRepository';
 
 @singleton()
 @injectable()
@@ -54,6 +54,7 @@ export class OsmdbtService {
     @inject(SERVICES.CONFIG) private readonly config: ConfigType,
     @inject(SERVICES.MEDIATOR) private readonly mediator: StatefulMediator,
     @inject(S3Manager) private readonly s3Manager: S3Manager,
+    @inject(FsRepository) private readonly fsRepository: FsRepository,
     @inject(SERVICES.METRICS) registry?: PromRegistry
   ) {
     this.appConfig = this.config.get('app') as AppConfig;
@@ -167,12 +168,7 @@ export class OsmdbtService {
 
       this.logger.info({ msg: 'finished the upload of the diff, uploading end state file', startState, endState });
 
-      const endStateFileBuffer = await promisifySpan(
-        FsSpanName.FS_READ,
-        { [FsAttributes.FILE_PATH]: this.osmdbtStatePath, [FsAttributes.FILE_NAME]: STATE_FILE },
-        contextAPI.active(),
-        async () => readFile(this.osmdbtStatePath)
-      );
+      const endStateFileBuffer = (await this.fsRepository.readFile(this.osmdbtStatePath)) as Buffer;
 
       await this.s3Manager.uploadFile(STATE_FILE, endStateFileBuffer);
 
@@ -247,7 +243,7 @@ export class OsmdbtService {
 
     const makeDirPromises = uniqueDirs.map(async (dir) => {
       this.logger.debug({ msg: 'creating directory', dir });
-      await promisifySpan(FsSpanName.FS_MKDIR, { [FsAttributes.DIR_PATH]: dir }, contextAPI.active(), async () => mkdir(dir, { recursive: true }));
+      await this.fsRepository.mkdir(dir);
     });
 
     try {
@@ -308,7 +304,7 @@ export class OsmdbtService {
 
     span?.setAttribute(FsAttributes.FILE_PATH, this.osmdbtStatePath);
 
-    const stateFileContent = await readFile(this.osmdbtStatePath, 'utf-8');
+    const stateFileContent = (await this.fsRepository.readFile(this.osmdbtStatePath, 'utf-8')) as string;
     const matchResult = stateFileContent.match(/sequenceNumber=\d+/);
     if (matchResult === null || matchResult.length === 0) {
       this.logger.error({ msg: 'failed to fetch sequence number from file', file: this.osmdbtStatePath });
@@ -333,9 +329,7 @@ export class OsmdbtService {
     if (this.config.get('telemetry.tracing').isEnabled) {
       const stateFilePath = join(this.osmdbtConfig.changesDir, top, bottom, `${stateNumber}.${STATE_FILE}`);
       const traceId = this.rootJobSpan?.spanContext().traceId;
-      await promisifySpan(FsSpanName.FS_APPEND, { [FsAttributes.FILE_PATH]: stateFilePath }, contextAPI.active(), async () =>
-        appendFile(stateFilePath, `traceId=${traceId}`, 'utf-8')
-      );
+      await this.fsRepository.appendFile(stateFilePath, `traceId=${traceId}`, 'utf-8');
     }
     const newDiffAndStatePaths = [STATE_FILE, DIFF_FILE_EXTENTION].map((fileExtention) => join(top, bottom, `${stateNumber}.${fileExtention}`));
 
@@ -345,9 +339,8 @@ export class OsmdbtService {
       this.logger.debug({ msg: 'uploading file', filePath });
 
       const localPath = join(this.osmdbtConfig.changesDir, filePath);
-      const uploadContent = await promisifySpan(FsSpanName.FS_READ, { [FsAttributes.FILE_PATH]: localPath }, contextAPI.active(), async () =>
-        readFile(localPath)
-      );
+      const uploadContent = (await this.fsRepository.readFile(localPath)) as Buffer;
+
       await this.s3Manager.uploadFile(filePath, uploadContent);
     });
 
@@ -383,18 +376,14 @@ export class OsmdbtService {
   private async postCatchupCleanup(span?: Span): Promise<void> {
     const { logDir } = this.osmdbtConfig;
     try {
-      const logFilesNames = await readdir(logDir);
+      const logFilesNames = await this.fsRepository.readdir(logDir);
+
       this.logger.info({ msg: 'unlinking log files', count: logFilesNames.length });
 
       const unlinkFilesPromises = logFilesNames.map(async (logFileName) => {
         const logFilePath = join(logDir, logFileName);
         this.logger.debug({ msg: 'unlinking file', filePath: logFilePath });
-        return promisifySpan(
-          FsSpanName.FS_UNLINK,
-          { [FsAttributes.FILE_PATH]: logFilePath, [FsAttributes.FILE_NAME]: logFileName },
-          contextAPI.active(),
-          async () => unlink(logFilePath)
-        );
+        return this.fsRepository.unlink(logFilePath);
       });
 
       span?.setAttribute('unlink.count', unlinkFilesPromises.length);
@@ -409,7 +398,7 @@ export class OsmdbtService {
 
   private async markLogFilesForCatchup(span?: Span): Promise<void> {
     const { logDir } = this.osmdbtConfig;
-    const logFilesNames = await readdir(logDir);
+    const logFilesNames = await this.fsRepository.readdir(logDir);
 
     this.logger.debug({ msg: 'marking log files for catchup', count: logFilesNames.length });
 
@@ -424,7 +413,7 @@ export class OsmdbtService {
         FsSpanName.FS_RENAME,
         { [FsAttributes.FILE_PATH]: currentPath, [FsAttributes.FILE_NAME]: logFileName },
         contextAPI.active(),
-        async () => rename(currentPath, newPath)
+        async () => this.fsRepository.rename(currentPath, newPath)
       );
     });
 
@@ -445,12 +434,8 @@ export class OsmdbtService {
     this.rootJobSpan?.setAttribute(JobAttributes.JOB_ROLLBACK, true);
 
     try {
-      const backupStateFileBuffer = await promisifySpan(
-        FsSpanName.FS_READ,
-        { [FsAttributes.FILE_PATH]: this.osmdbtStateBackupPath, [FsAttributes.FILE_NAME]: STATE_FILE },
-        contextAPI.active(),
-        async () => readFile(this.osmdbtStateBackupPath)
-      );
+      const backupStateFileBuffer = (await this.fsRepository.readFile(this.osmdbtStateBackupPath)) as Buffer;
+
       await this.s3Manager.uploadFile(STATE_FILE, backupStateFileBuffer, span);
       handleSpanOnSuccess(span);
     } catch (error) {

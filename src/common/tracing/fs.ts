@@ -3,6 +3,7 @@ export enum FsSpanName {
   FS_WRITE = 'fs.write',
   FS_APPEND = 'fs.append',
   FS_READ = 'fs.read',
+  FS_READ_DIR = 'fs.readdir',
   FS_RENAME = 'fs.rename',
   FS_UNLINK = 'fs.unlink',
 }

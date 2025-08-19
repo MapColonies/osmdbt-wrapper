@@ -1,14 +1,13 @@
-import { writeFile } from 'fs/promises';
 import { Counter as PromCounter, Registry as PromRegistry } from 'prom-client';
 import { inject, injectable, singleton } from 'tsyringe';
-import { context as contextAPI, Span } from '@opentelemetry/api';
+import { Span } from '@opentelemetry/api';
 import { type Logger } from '@map-colonies/js-logger';
 import { SERVICES, STATE_FILE } from '@src/common/constants';
 import { type ConfigType } from '@src/common/config';
 import { ObjectStorageConfig } from '@src/common/interfaces';
-import { handleSpanOnError, handleSpanOnSuccess, promisifySpan } from '@src/common/tracing/util';
-import { FsAttributes, FsSpanName } from '@src/common/tracing/fs';
+import { handleSpanOnError, handleSpanOnSuccess } from '@src/common/tracing/util';
 import { streamToString } from '@src/util';
+import { FsRepository } from '@src/fs/fsRepository';
 import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 
 @singleton()
@@ -22,6 +21,7 @@ export class S3Manager {
     @inject(S3_REPOSITORY) private readonly s3Repository: S3Repository,
     @inject(SERVICES.CONFIG) private readonly config: ConfigType,
     @inject(SERVICES.LOGGER) private readonly logger: Logger,
+    @inject(FsRepository) private readonly fsRepository: FsRepository,
     @inject(SERVICES.METRICS) registry?: PromRegistry
   ) {
     this.objectStorageConfig = this.config.get('objectStorage') as ObjectStorageConfig;
@@ -63,9 +63,8 @@ export class S3Manager {
     const stateFileContent = await streamToString(stateFileStream);
     const writeFilesPromises = [path, backupPath].map(async (filePath) => {
       this.logger.debug({ msg: 'writing file', filePath });
-      await promisifySpan(FsSpanName.FS_WRITE, { [FsAttributes.FILE_PATH]: filePath }, contextAPI.active(), async () =>
-        writeFile(path, stateFileContent)
-      );
+
+      await this.fsRepository.writeFile(filePath, stateFileContent);
     });
 
     try {
