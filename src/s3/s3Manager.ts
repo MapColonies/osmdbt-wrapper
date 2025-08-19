@@ -19,8 +19,8 @@ interface GetStateFileFromS3ToFsParams {
 @injectable()
 export class S3Manager {
   private readonly objectStorageConfig: ObjectStorageConfig;
-  private readonly filesCounter?: PromCounter<'rootSpan'>;
-  private readonly errorCounter?: PromCounter<'rootSpan'>;
+  private readonly filesCounter?: PromCounter;
+  private readonly errorCounter?: PromCounter;
 
   public constructor(
     @inject(S3_REPOSITORY) private readonly s3Repository: S3Repository,
