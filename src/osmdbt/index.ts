@@ -29,14 +29,12 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
     }
 
     const runFn = async (failurePenalty: number = 0): Promise<void> => {
-      logger.info({ msg: 'Starting osmdbt job' });
       const res = await tryCatch(osmdbtService.startJob());
       if (res.error) {
         failurePenalty *= MILLISECONDS_IN_SECOND;
         logger.error({ msg: 'Error during osmdbt job', error: res.error, failurePenalty });
         await delay(failurePenalty);
       }
-      logger.info({ msg: 'Finished osmdbt job' });
       return;
     };
 
