@@ -15,8 +15,8 @@ import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 @injectable()
 export class S3Manager {
   private readonly objectStorageConfig: ObjectStorageConfig;
-  private readonly filesCounter?: PromCounter<'rootSpan'>;
-  private readonly errorCounter?: PromCounter<'rootSpan'>;
+  private readonly filesCounter?: PromCounter;
+  private readonly errorCounter?: PromCounter;
   public constructor(
     @inject(S3_REPOSITORY) private readonly s3Repository: S3Repository,
     @inject(SERVICES.CONFIG) private readonly config: ConfigType,
@@ -29,13 +29,11 @@ export class S3Manager {
       this.filesCounter = new PromCounter({
         name: 'osmdbt_files_count',
         help: 'The total number of files uploaded to s3',
-        labelNames: ['rootSpan'] as const,
         registers: [registry],
       });
       this.errorCounter = new PromCounter({
         name: 'osmdbt_s3_error_count',
         help: 'The total number of errors encountered while interacting with s3',
-        labelNames: ['rootSpan'] as const,
         registers: [registry],
       });
     }
