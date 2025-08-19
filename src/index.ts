@@ -6,7 +6,7 @@ import { Logger } from '@map-colonies/js-logger';
 import { FORCE_SHUTDOWN_TIMEOUT_MS, SERVICES } from '@common/constants';
 import { ConfigType } from '@common/config';
 import { getApp } from './app';
-import { OSMDBT_PROCESSOR, OsmdbtProcessor } from './osmdbt';
+import { isSingleTask, OSMDBT_PROCESSOR, OsmdbtProcessor } from './osmdbt';
 
 void getApp()
   .then(async ([app, container]) => {
@@ -21,8 +21,10 @@ void getApp()
       onSignal: container.resolve(SERVICES.ON_SIGNAL),
     });
 
-    const osmdbtProcess = await container.resolve<OsmdbtProcessor>(OSMDBT_PROCESSOR)();
-    if (typeof osmdbtProcess !== 'object') {
+    const osmdbtProcess = container.resolve<OsmdbtProcessor>(OSMDBT_PROCESSOR)();
+    if (isSingleTask(osmdbtProcess)) {
+      await osmdbtProcess();
+
       server.close(() => {
         logger.info({ msg: 'Server closed, exiting process' });
         process.exit(0);

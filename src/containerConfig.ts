@@ -118,7 +118,7 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
         cleanupRegistry.register({
           id: OSMDBT_PROCESSOR,
           func: async () => {
-            const osmdbtProcess = await osmdbtProcessor(true);
+            const osmdbtProcess = osmdbtProcessor(true);
             if (!isSingleTask(osmdbtProcess)) {
               await osmdbtProcess.destroy();
             }

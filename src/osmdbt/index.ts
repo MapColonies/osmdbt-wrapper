@@ -10,7 +10,7 @@ import { OsmdbtService } from './osmdbtService';
 
 type SingleTask = () => Promise<void>;
 
-type OsmdbtProcessorFuncReturnType = Promise<ScheduledTask | SingleTask>;
+type OsmdbtProcessorFuncReturnType = ScheduledTask | SingleTask;
 
 let cachedProcessorResult: Awaited<OsmdbtProcessorFuncReturnType> | undefined = undefined;
 
@@ -29,7 +29,7 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
   const appConfig = config.get('app') as AppConfig;
   const osmdbtService = container.resolve(OsmdbtService);
 
-  const osmdbtProcessor: OsmdbtProcessor = async (preventInit = false): OsmdbtProcessorFuncReturnType => {
+  const osmdbtProcessor: OsmdbtProcessor = (preventInit = false): OsmdbtProcessorFuncReturnType => {
     if (cachedProcessorResult !== undefined) {
       return cachedProcessorResult;
     }
