@@ -1,5 +1,4 @@
 import * as fsPromises from 'fs/promises';
-import { readFile } from 'fs/promises';
 import execa from 'execa';
 import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
 import jsLogger from '@map-colonies/js-logger';
@@ -10,6 +9,7 @@ import { tracingFactory } from '@src/common/tracing';
 import { OsmdbtService } from '@src/osmdbt/osmdbtService';
 import { S3Manager } from '@src/s3/s3Manager';
 import { ErrorWithExitCode } from '@src/common/errors';
+import { FsRepository } from '@src/fs/fsRepository';
 
 jest.mock('fs/promises');
 jest.mock('execa');
@@ -22,6 +22,13 @@ describe('OsmdbtService', () => {
   const removeLock = jest.fn();
   const updateAction = jest.fn();
   const createAction = jest.fn();
+
+  const readFile = jest.fn();
+  const mkdir = jest.fn();
+  const appendFile = jest.fn();
+  const readdir = jest.fn();
+  const rename = jest.fn();
+  const unlink = jest.fn();
 
   beforeAll(async () => {
     await initConfig(true);
@@ -42,6 +49,15 @@ describe('OsmdbtService', () => {
       uploadFile,
     } as unknown as S3Manager;
 
+    const fsRepository = {
+      readFile,
+      mkdir,
+      appendFile,
+      readdir,
+      rename,
+      unlink,
+    } as unknown as FsRepository;
+
     const mediator = {
       reserveAccess,
       removeLock,
@@ -54,7 +70,8 @@ describe('OsmdbtService', () => {
       trace.getTracer(`${SERVICE_NAME}_osmdbtService_unit_test`),
       getConfig(),
       mediator,
-      s3Manager
+      s3Manager,
+      fsRepository
     );
   });
 
@@ -604,27 +621,25 @@ describe('OsmdbtService', () => {
     interface MarkLogFilesForCatchup {
       markLogFilesForCatchup: () => Promise<string>;
     }
-    const mockReaddir = fsPromises.readdir as jest.MockedFunction<typeof fsPromises.readdir>;
-    const mockRename = fsPromises.rename as jest.MockedFunction<typeof fsPromises.rename>;
 
     it('should markLogFilesForCatchup successfully', async () => {
-      mockReaddir.mockResolvedValueOnce(['test', 'test.done'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
+      readdir.mockResolvedValueOnce(['test', 'test.done'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
 
       await expect((osmdbtService as unknown as MarkLogFilesForCatchup).markLogFilesForCatchup()).resolves.toBeUndefined();
     });
 
     it('should markLogFilesForCatchup fail because readdir fails', async () => {
       const error = new Error('some error');
-      mockReaddir.mockRejectedValueOnce(error);
+      readdir.mockRejectedValueOnce(error);
 
       await expect((osmdbtService as unknown as MarkLogFilesForCatchup).markLogFilesForCatchup()).rejects.toBe(error);
     });
 
     it('should markLogFilesForCatchup fail because rename fails', async () => {
-      mockReaddir.mockResolvedValueOnce(['test', 'test.done'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
+      readdir.mockResolvedValueOnce(['test', 'test.done'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
 
       const error = new Error('some error');
-      mockRename.mockRejectedValueOnce(error);
+      rename.mockRejectedValueOnce(error);
 
       await expect((osmdbtService as unknown as MarkLogFilesForCatchup).markLogFilesForCatchup()).rejects.toBe(error);
     });
@@ -634,19 +649,17 @@ describe('OsmdbtService', () => {
     interface PostCatchupCleanup {
       postCatchupCleanup: () => Promise<string>;
     }
-    const mockReaddir = fsPromises.readdir as jest.MockedFunction<typeof fsPromises.readdir>;
-    const mockUnlink = fsPromises.unlink as jest.MockedFunction<typeof fsPromises.unlink>;
 
     it('should postCatchupCleanup successfully', async () => {
-      mockReaddir.mockResolvedValueOnce(['test'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
-      mockUnlink.mockResolvedValueOnce(undefined);
+      readdir.mockResolvedValueOnce(['test'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
+      unlink.mockResolvedValueOnce(undefined);
 
       await expect((osmdbtService as unknown as PostCatchupCleanup).postCatchupCleanup()).resolves.toBeUndefined();
     });
 
     it('should postCatchupCleanup throw error', async () => {
       const error = new Error('some error');
-      mockReaddir.mockRejectedValueOnce(error);
+      readdir.mockRejectedValueOnce(error);
 
       await expect((osmdbtService as unknown as PostCatchupCleanup).postCatchupCleanup()).rejects.toBe(error);
     });
@@ -656,17 +669,16 @@ describe('OsmdbtService', () => {
     interface PrepareEnvironment {
       prepareEnvironment: () => Promise<string>;
     }
-    const mockMkdir = fsPromises.mkdir as jest.MockedFunction<typeof fsPromises.mkdir>;
 
     it('should prepareEnvironment successfully', async () => {
-      mockMkdir.mockResolvedValueOnce(undefined);
+      mkdir.mockResolvedValueOnce(undefined);
 
       await expect((osmdbtService as unknown as PrepareEnvironment).prepareEnvironment()).resolves.toBeUndefined();
     });
 
     it('should prepareEnvironment because mkdir throws error', async () => {
       const error = new Error('some error');
-      mockMkdir.mockRejectedValueOnce(error);
+      mkdir.mockRejectedValueOnce(error);
 
       await expect((osmdbtService as unknown as PrepareEnvironment).prepareEnvironment()).rejects.toBe(error);
     });

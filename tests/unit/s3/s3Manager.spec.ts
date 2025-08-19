@@ -1,10 +1,10 @@
 import { Readable } from 'stream';
-import * as fsPromises from 'fs/promises';
 import { Registry } from 'prom-client';
 import jsLogger from '@map-colonies/js-logger';
 import { getConfig, initConfig } from '@src/common/config';
 import { S3Manager } from '@src/s3/s3Manager';
 import { S3Repository } from '@src/s3/s3Repository';
+import { FsRepository } from '@src/fs/fsRepository';
 
 jest.mock('fs/promises');
 
@@ -14,6 +14,8 @@ describe('s3Manager', () => {
   const getObjectWrapper = jest.fn();
   const putObjectWrapper = jest.fn();
   const deleteObjectWrapper = jest.fn();
+
+  const writeFile = jest.fn();
 
   beforeAll(async () => {
     await initConfig(true);
@@ -34,11 +36,14 @@ describe('s3Manager', () => {
       clear: jest.fn(),
     } as unknown as Registry;
 
-    s3Manager = new S3Manager(s3Repository, getConfig(), jsLogger({ enabled: false }), mockRegistry);
+    const fsRepository = {
+      writeFile,
+    } as unknown as FsRepository;
+
+    s3Manager = new S3Manager(s3Repository, getConfig(), jsLogger({ enabled: false }), fsRepository, mockRegistry);
   });
 
   describe('getStateFileFromS3ToFs', () => {
-    const mockWriteFile = fsPromises.writeFile as jest.MockedFunction<typeof fsPromises.writeFile>;
     it('should run successfully', async () => {
       const stream = new Readable({
         read() {
@@ -49,7 +54,7 @@ describe('s3Manager', () => {
 
       getObjectWrapper.mockResolvedValueOnce(stream);
 
-      mockWriteFile.mockResolvedValue(undefined);
+      writeFile.mockResolvedValue(undefined);
 
       await expect(
         s3Manager.getStateFileFromS3ToFs({
@@ -59,7 +64,7 @@ describe('s3Manager', () => {
       ).resolves.toBeUndefined();
 
       expect(getObjectWrapper).toHaveBeenCalledTimes(1);
-      expect(mockWriteFile).toHaveBeenCalledTimes(2);
+      expect(writeFile).toHaveBeenCalledTimes(2);
     });
 
     it('should fail becuase getObjectWrapper throws error', async () => {
@@ -85,7 +90,7 @@ describe('s3Manager', () => {
 
       getObjectWrapper.mockResolvedValueOnce(stream);
 
-      mockWriteFile.mockRejectedValueOnce(error);
+      writeFile.mockRejectedValueOnce(error);
 
       await expect(
         s3Manager.getStateFileFromS3ToFs({

@@ -13,6 +13,7 @@ module.exports = {
   collectCoverageFrom: [
     '<rootDir>/src/osmdbt/osmdbtService.ts',
     '<rootDir>/src/s3/s3Manager.ts',
+    '<rootDir>/src/fs/fsRepository.ts',
     '!*/node_modules/',
     '!/vendor/**',
     '!*/common/**',
