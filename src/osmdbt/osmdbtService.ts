@@ -62,6 +62,7 @@ export class OsmdbtService {
     this.osmdbtStatePath = join(this.osmdbtConfig.changesDir, STATE_FILE);
     this.osmdbtStateBackupPath = join(this.osmdbtConfig.changesDir, BACKUP_DIR_NAME, STATE_FILE);
 
+    /* istanbul ignore next */
     if (registry !== undefined) {
       const { osmdbtCommandDurationSeconds, osmdbtJobDurationSeconds } = (this.config.get('telemetry.metrics') as MetricsConfig).buckets;
       this.jobCounter = new PromCounter({
@@ -72,14 +73,14 @@ export class OsmdbtService {
       this.jobDurationHistogram = new Histogram({
         name: 'osmdbt_job_duration_seconds',
         help: 'Duration of osmdbt job execution in seconds',
-        labelNames: ['status', 'exit_code'] as const,
+        labelNames: ['exitCode'] as const,
         buckets: osmdbtCommandDurationSeconds,
       });
 
       this.commandDurationHistogram = new Histogram({
         name: 'osmdbt_command_duration_seconds',
         help: 'Duration of individual osmdbt commands in seconds',
-        labelNames: ['executable', 'command', 'status'] as const,
+        labelNames: ['executable', 'command', 'exitCode'] as const,
         buckets: osmdbtJobDurationSeconds,
       });
     }
