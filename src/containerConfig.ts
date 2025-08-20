@@ -109,7 +109,7 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
     {
       token: OSMDBT_PROCESSOR,
       provider: {
-        useFactory: osmdbtProcessorFactory,
+        useFactory: instancePerContainerCachingFactory(osmdbtProcessorFactory),
       },
       postInjectionHook: (container: DependencyContainer): void => {
         const cleanupRegistry = container.resolve<CleanupRegistry>(SERVICES.CLEANUP_REGISTRY);
