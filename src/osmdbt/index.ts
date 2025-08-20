@@ -16,7 +16,7 @@ let cachedProcessorResult: Awaited<OsmdbtProcessorFuncReturnType> | undefined = 
 
 export const OSMDBT_PROCESSOR = Symbol('OsmdbtProcessor');
 
-export type OsmdbtProcessor = (preventInit?: boolean) => OsmdbtProcessorFuncReturnType;
+export type OsmdbtProcessor = () => OsmdbtProcessorFuncReturnType;
 
 export function isSingleTask(value: ScheduledTask | SingleTask): value is SingleTask {
   return typeof value === 'function';
@@ -29,13 +29,9 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
   const appConfig = config.get('app') as AppConfig;
   const osmdbtService = container.resolve(OsmdbtService);
 
-  const osmdbtProcessor: OsmdbtProcessor = (preventInit = false): OsmdbtProcessorFuncReturnType => {
+  const osmdbtProcessor: OsmdbtProcessor = (): OsmdbtProcessorFuncReturnType => {
     if (cachedProcessorResult !== undefined) {
       return cachedProcessorResult;
-    }
-
-    if (preventInit) {
-      throw new Error('OsmdbtProcessor has not been initialized yet. Please call it without preventInit first.');
     }
 
     const isCron = appConfig.cron?.enabled;
