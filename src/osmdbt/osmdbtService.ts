@@ -29,7 +29,7 @@ import { promisifySpan } from '@src/common/tracing/util';
 import { FsAttributes, FsSpanName } from '@src/common/tracing/fs';
 import { S3Manager } from '@src/s3/s3Manager';
 import { CommandSpanName, ExecutableAttributes } from '@src/common/tracing/executable';
-import { getDiffDirPathComponents } from '@src/util';
+import { getDiffDirPathComponents, streamToString } from '@src/util';
 import { tryCatch } from '@src/try-catch';
 import { FsRepository } from '@src/fs/fsRepository';
 
@@ -111,20 +111,9 @@ export class OsmdbtService {
 
       await this.tracer.startActiveSpan('prepare-environment', {}, contextAPI.active(), this.prepareEnvironment.bind(this));
 
-      const getStateFileFromS3ToFsResponse = await this.tracer.startActiveSpan('get-start-state', {}, contextAPI.active(), async (span) => {
-        return tryCatch(
-          this.s3Manager.getStateFileFromS3ToFs(
-            {
-              path: this.osmdbtStatePath,
-              backupPath: this.osmdbtStateBackupPath,
-            },
-            span
-          )
-        );
-      });
-
-      if (getStateFileFromS3ToFsResponse.error) {
-        return this.processExitSafely(ExitCodes.S3_ERROR);
+      const pullStateFileStatusCode = await this.pullStateFile();
+      if (pullStateFileStatusCode !== ExitCodes.SUCCESS) {
+        return this.processExitSafely(pullStateFileStatusCode);
       }
 
       const startState = await this.tracer.startActiveSpan(FsSpanName.FS_READ, {}, contextAPI.active(), this.getSequenceNumber.bind(this));
@@ -458,5 +447,31 @@ export class OsmdbtService {
     );
 
     return JSON.parse(collectedInfo) as Record<string, unknown>;
+  }
+
+  private async pullStateFile(): Promise<(typeof ExitCodes)[keyof typeof ExitCodes]> {
+    const getStateFileFromS3Response = await this.tracer.startActiveSpan('get-start-state', {}, contextAPI.active(), async (span) => {
+      return tryCatch(this.s3Manager.getFile(STATE_FILE, span));
+    });
+
+    if (getStateFileFromS3Response.error) {
+      return ExitCodes.S3_ERROR;
+    }
+
+    const writeFileResponse = await this.tracer.startActiveSpan('write-start-state', {}, contextAPI.active(), async (span) => {
+      const stateFileContent = await streamToString(getStateFileFromS3Response.data);
+      const writeFilesPromises = [this.osmdbtStatePath, this.osmdbtStateBackupPath].map(async (filePath) => {
+        this.logger.debug({ msg: 'writing file', filePath });
+
+        await this.fsRepository.writeFile(filePath, stateFileContent);
+      });
+      return tryCatch(Promise.all(writeFilesPromises));
+    });
+
+    if (writeFileResponse.error) {
+      return ExitCodes.FS_ERROR;
+    }
+
+    return ExitCodes.SUCCESS;
   }
 }
