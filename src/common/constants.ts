@@ -51,6 +51,7 @@ export const ExitCodes = {
   INVALID_STATE_FILE_ERROR: 102,
   ROLLBACK_FAILURE_ERROR: 104,
   S3_ERROR: 105,
+  FS_ERROR: 107,
   TERMINATED: 130,
 };
 /* eslint-enable @typescript-eslint/naming-convention */
