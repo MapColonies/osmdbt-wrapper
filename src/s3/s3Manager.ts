@@ -73,6 +73,20 @@ export class S3Manager {
     handleSpanOnSuccess(span);
   }
 
+  public async getFile(fileName: string, span?: Span): Promise<NodeJS.ReadStream> {
+    this.logger.debug({ msg: 'getting file from s3' });
+    let fileStream: NodeJS.ReadStream;
+
+    try {
+      fileStream = await this.s3Repository.getObjectWrapper(this.objectStorageConfig.bucketName, fileName);
+    } catch (error) {
+      handleSpanOnError(span, error, this.errorCounter);
+      throw error;
+    }
+    handleSpanOnSuccess(span);
+    return fileStream;
+  }
+
   public async uploadFile(fileName: string, buffer: Buffer, span?: Span): Promise<void> {
     this.logger.debug({ msg: 'putting file to s3', fileName });
 
