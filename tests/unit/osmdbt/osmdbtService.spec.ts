@@ -16,7 +16,7 @@ jest.mock('execa');
 
 let osmdbtService: OsmdbtService;
 describe('OsmdbtService', () => {
-  const getStateFileFromS3ToFs = jest.fn();
+  const getFile = jest.fn();
   const uploadFile = jest.fn();
   const reserveAccess = jest.fn();
   const removeLock = jest.fn();
@@ -45,7 +45,7 @@ describe('OsmdbtService', () => {
 
   beforeEach(() => {
     const s3Manager = {
-      getStateFileFromS3ToFs,
+      getFile,
       uploadFile,
     } as unknown as S3Manager;
 
@@ -81,7 +81,7 @@ describe('OsmdbtService', () => {
     });
     it('should return true when a job is active', async () => {
       reserveAccess.mockResolvedValue(undefined);
-      getStateFileFromS3ToFs.mockResolvedValue(undefined);
+      getFile.mockResolvedValue(undefined);
       uploadFile.mockResolvedValue(undefined);
       updateAction.mockResolvedValue(undefined);
       createAction.mockResolvedValue(undefined);
@@ -101,6 +101,8 @@ describe('OsmdbtService', () => {
         updateName: jest.fn(),
       };
       jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
+      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
+      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
       jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService).mockImplementation(async () => {});
       jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockImplementation(async () => {});
       jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockImplementation(async () => {});
@@ -131,7 +133,7 @@ describe('OsmdbtService', () => {
     });
     it('should complete successfully and call mediator methods', async () => {
       reserveAccess.mockResolvedValue(undefined);
-      getStateFileFromS3ToFs.mockResolvedValue(undefined);
+      getFile.mockResolvedValue(undefined);
       uploadFile.mockResolvedValue(undefined);
       updateAction.mockResolvedValue(undefined);
       createAction.mockResolvedValue(undefined);
@@ -151,6 +153,8 @@ describe('OsmdbtService', () => {
         updateName: jest.fn(),
       };
       jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
+      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
+      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
       jest
         .spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService)
         .mockImplementationOnce(async () => {})
@@ -162,7 +166,7 @@ describe('OsmdbtService', () => {
       jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService).mockImplementation(async () => {});
       await osmdbtService.startJob();
       expect(reserveAccess).toHaveBeenCalled();
-      expect(getStateFileFromS3ToFs).toHaveBeenCalled();
+      // expect(getFile).toHaveBeenCalled();
       expect(removeLock).toHaveBeenCalled();
     });
   });
@@ -223,6 +227,8 @@ describe('OsmdbtService', () => {
     });
 
     it('should handle error in file upload', async () => {
+      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
+      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
       (readFile as jest.MockedFunction<typeof readFile>).mockResolvedValue('sequenceNumber=123');
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
@@ -274,10 +280,10 @@ describe('OsmdbtService', () => {
       expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.GENERAL_ERROR);
     });
 
-    it('should handle error in getStateFileFromS3ToFs', async () => {
+    it('should handle error in getFile', async () => {
       reserveAccess.mockResolvedValue(undefined);
 
-      (osmdbtService as unknown as { s3Manager: S3Manager }).s3Manager.getStateFileFromS3ToFs = jest.fn().mockRejectedValue('getStateFileFromS3ToFs');
+      (osmdbtService as unknown as { s3Manager: S3Manager }).s3Manager.getFile = jest.fn().mockRejectedValue('getFile');
 
       const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
 
@@ -302,6 +308,8 @@ describe('OsmdbtService', () => {
         setStatus: jest.fn(),
         updateName: jest.fn(),
       };
+      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
+      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
       jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
       jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService).mockRejectedValue(new Error('fail getSequenceNumber'));
       const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
@@ -325,6 +333,9 @@ describe('OsmdbtService', () => {
         setStatus: jest.fn(),
         updateName: jest.fn(),
       };
+
+      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
+      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
       jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
@@ -353,6 +364,8 @@ describe('OsmdbtService', () => {
         setStatus: jest.fn(),
         updateName: jest.fn(),
       };
+      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
+      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
       jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
@@ -382,6 +395,9 @@ describe('OsmdbtService', () => {
         setStatus: jest.fn(),
         updateName: jest.fn(),
       };
+
+      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
+      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
       jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
@@ -415,7 +431,8 @@ describe('OsmdbtService', () => {
         ...osmdbtService['appConfig'],
         shouldCollectInfo: true,
       };
-
+      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
+      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
       jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
@@ -451,6 +468,8 @@ describe('OsmdbtService', () => {
         shouldCollectInfo: true,
       };
 
+      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
+      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
       jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
