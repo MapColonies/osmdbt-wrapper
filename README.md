@@ -43,5 +43,5 @@ Only one job can run at a time to prevent a race condition on the replication sl
 | 102              | invalid state error       | state file located in s3 is invalid.                                            |
 | 104              | rollback error            | rolling back failed.                                                            |
 | 105              | s3 error                  | s3 operation errored                                                            |
-| 106              | s3 locked error           | s3 is locked                                                                    |
+| 107              | fs error                  | fs operation errored                                                            |
 | 130              | terminated                | the program was terminated by the user.                                         |
