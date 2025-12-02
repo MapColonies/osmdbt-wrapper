@@ -29,7 +29,7 @@ import { promisifySpan } from '@src/common/tracing/util';
 import { FsAttributes, FsSpanName } from '@src/common/tracing/fs';
 import { S3Manager } from '@src/s3/s3Manager';
 import { CommandSpanName, ExecutableAttributes } from '@src/common/tracing/executable';
-import { getDiffDirPathComponents, streamToString } from '@src/util';
+import { getDiffDirPathComponents, streamToString, timerify } from '@src/util';
 import { tryCatch } from '@src/try-catch';
 import { FsRepository } from '@src/fs/fsRepository';
 
@@ -257,19 +257,22 @@ export class OsmdbtService {
     });
     let exitCode: number = ExitCodes.SUCCESS;
 
-    const commandStartTime = Date.now();
+    let commandDurationSeconds = 0;
     try {
-      const spawnedChild = execa(executablePath, args, { encoding: 'utf-8' });
+      const [stdout, duration] = await timerify(async () => {
+        const spawnedChild = execa(executablePath, args, { encoding: 'utf-8' });
 
-      const { exitCode: commandExitCode, stderr, stdout } = await spawnedChild;
-      exitCode = commandExitCode;
+        const { exitCode: commandExitCode, stderr, stdout } = await spawnedChild;
+        exitCode = commandExitCode;
 
-      if (exitCode !== 0) {
-        throw new ErrorWithExitCode(stderr.length > 0 ? stderr : `osmdbt ${command} failed with exit code ${exitCode}`, ExitCodes.OSMDBT_ERROR);
-      }
+        if (exitCode !== 0) {
+          throw new ErrorWithExitCode(stderr.length > 0 ? stderr : `osmdbt ${command} failed with exit code ${exitCode}`, ExitCodes.OSMDBT_ERROR);
+        }
 
-      handleSpanOnSuccess(span);
-
+        handleSpanOnSuccess(span);
+        return stdout;
+      });
+      commandDurationSeconds = duration;
       return stdout;
     } catch (error) {
       this.logger.error({ msg: 'failure occurred during command execution', executable: 'osmdbt', command, args });
@@ -282,8 +285,6 @@ export class OsmdbtService {
 
       throw new ErrorWithExitCode(`${executable} errored`, exitCode);
     } finally {
-      const commandDurationSeconds = (Date.now() - commandStartTime) / MILLISECONDS_IN_SECOND;
-
       this.commandDurationHistogram?.observe({ executable, command, exitCode }, commandDurationSeconds);
     }
   }
