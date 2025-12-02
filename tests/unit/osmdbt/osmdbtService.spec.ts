@@ -1,4 +1,5 @@
 import * as fsPromises from 'fs/promises';
+import { Readable } from 'stream';
 import execa from 'execa';
 import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
 import jsLogger from '@map-colonies/js-logger';
@@ -241,6 +242,38 @@ describe('OsmdbtService', () => {
       await osmdbtService.startJob();
 
       expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.S3_ERROR);
+    });
+  });
+
+  describe('pullStateFile', () => {
+    interface PullStateFile {
+      pullStateFile: () => Promise<(typeof ExitCodes)[keyof typeof ExitCodes]>;
+    }
+
+    const createStateFileReadStream = () => Readable.from([Buffer.from('sequenceNumber=123', 'utf-8')]) as NodeJS.ReadStream;
+
+    it('should run pullStateFile successfully', async () => {
+      (osmdbtService as unknown as { s3Manager: S3Manager }).s3Manager.getFile = jest.fn().mockResolvedValueOnce(createStateFileReadStream());
+
+      (osmdbtService as unknown as { fsRepository: FsRepository }).fsRepository.writeFile = jest.fn().mockRejectedValue(undefined);
+
+      await expect((osmdbtService as unknown as PullStateFile).pullStateFile()).resolves.toBe(ExitCodes.SUCCESS);
+
+      (osmdbtService as unknown as { fsRepository: FsRepository }).fsRepository.writeFile = jest.fn().mockReset();
+    });
+
+    it('should handle error in file download', async () => {
+      (osmdbtService as unknown as { s3Manager: S3Manager }).s3Manager.getFile = jest.fn().mockRejectedValueOnce('fail getFile');
+
+      await expect((osmdbtService as unknown as PullStateFile).pullStateFile()).resolves.toBe(ExitCodes.S3_ERROR);
+    });
+
+    it('should handle error in file FS save', async () => {
+      (osmdbtService as unknown as { s3Manager: S3Manager }).s3Manager.getFile = jest.fn().mockResolvedValueOnce(createStateFileReadStream());
+
+      (osmdbtService as unknown as { fsRepository: FsRepository }).fsRepository.writeFile = jest.fn().mockRejectedValueOnce('fail gwriteFile');
+
+      await expect((osmdbtService as unknown as PullStateFile).pullStateFile()).resolves.toBe(ExitCodes.FS_ERROR);
     });
   });
 
