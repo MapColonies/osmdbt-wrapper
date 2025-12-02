@@ -4,9 +4,6 @@ import jsLogger from '@map-colonies/js-logger';
 import { getConfig, initConfig } from '@src/common/config';
 import { S3Manager } from '@src/s3/s3Manager';
 import { S3Repository } from '@src/s3/s3Repository';
-import { FsRepository } from '@src/fs/fsRepository';
-
-jest.mock('fs/promises');
 
 let s3Manager: S3Manager;
 describe('s3Manager', () => {
@@ -14,8 +11,6 @@ describe('s3Manager', () => {
   const getObjectWrapper = jest.fn();
   const putObjectWrapper = jest.fn();
   const deleteObjectWrapper = jest.fn();
-
-  const writeFile = jest.fn();
 
   beforeAll(async () => {
     await initConfig(true);
@@ -36,14 +31,10 @@ describe('s3Manager', () => {
       clear: jest.fn(),
     } as unknown as Registry;
 
-    const fsRepository = {
-      writeFile,
-    } as unknown as FsRepository;
-
-    s3Manager = new S3Manager(s3Repository, getConfig(), jsLogger({ enabled: false }), fsRepository, mockRegistry);
+    s3Manager = new S3Manager(s3Repository, getConfig(), jsLogger({ enabled: false }), mockRegistry);
   });
 
-  describe('getStateFileFromS3ToFs', () => {
+  describe('getFile', () => {
     it('should run successfully', async () => {
       const stream = new Readable({
         read() {
@@ -54,50 +45,16 @@ describe('s3Manager', () => {
 
       getObjectWrapper.mockResolvedValueOnce(stream);
 
-      writeFile.mockResolvedValue(undefined);
-
-      await expect(
-        s3Manager.getStateFileFromS3ToFs({
-          path: '/mock/path',
-          backupPath: '/mock/backup/path',
-        })
-      ).resolves.toBeUndefined();
+      await expect(s3Manager.getFile('/mock/path')).resolves.toBeDefined();
 
       expect(getObjectWrapper).toHaveBeenCalledTimes(1);
-      expect(writeFile).toHaveBeenCalledTimes(2);
     });
 
     it('should fail becuase getObjectWrapper throws error', async () => {
       const error = new Error('some error');
       getObjectWrapper.mockRejectedValueOnce(error);
 
-      await expect(
-        s3Manager.getStateFileFromS3ToFs({
-          path: '/mock/path',
-          backupPath: '/mock/backup/path',
-        })
-      ).rejects.toBe(error);
-    });
-
-    it('should fail becuase writeFile throws error', async () => {
-      const error = new Error('some error');
-      const stream = new Readable({
-        read() {
-          this.push('mock-content');
-          this.push(null);
-        },
-      }) as NodeJS.ReadStream;
-
-      getObjectWrapper.mockResolvedValueOnce(stream);
-
-      writeFile.mockRejectedValueOnce(error);
-
-      await expect(
-        s3Manager.getStateFileFromS3ToFs({
-          path: '/mock/path',
-          backupPath: '/mock/backup/path',
-        })
-      ).rejects.toBe(error);
+      await expect(s3Manager.getFile('/mock/path')).rejects.toBe(error);
     });
   });
 
