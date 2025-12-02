@@ -6,7 +6,6 @@ import { SERVICES } from '@src/common/constants';
 import { type ConfigType } from '@src/common/config';
 import { ObjectStorageConfig } from '@src/common/interfaces';
 import { handleSpanOnError, handleSpanOnSuccess } from '@src/common/tracing/util';
-import { FsRepository } from '@src/fs/fsRepository';
 import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 
 @singleton()
