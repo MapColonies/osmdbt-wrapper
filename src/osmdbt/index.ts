@@ -55,16 +55,19 @@ export const osmdbtProcessorFactory: FactoryFunction<OsmdbtProcessor> = (contain
     const scheduledTask = cronSchedule(
       appConfig.cron!.expression,
       async () => {
-        const res = await tryCatch(osmdbtService.startJob());
+        const { error } = await tryCatch(osmdbtService.startJob());
 
-        if (res.error) {
-          logger.error({ msg: 'Error during osmdbt job', error: res.error, failurePenaltySeconds });
+        if (error) {
+          logger.error({ msg: 'Error during osmdbt job', error, failurePenaltySeconds });
           await delay(failurePenaltySeconds);
         }
-      },
-      {
-        noOverlap: true,
+        return;
       }
+      //TODO: currently noOverlap introduced issue. https://github.com/node-cron/node-cron/issues/498
+      // No need currently as we handle it inside the osmdbtService
+      // {
+      //   noOverlap: true,
+      // }
     );
     cachedProcessorResult = scheduledTask;
     return scheduledTask;
