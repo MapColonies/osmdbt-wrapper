@@ -113,7 +113,8 @@ export class OsmdbtService {
 
       const pullStateFileStatusCode = await this.pullStateFile();
       if (pullStateFileStatusCode !== ExitCodes.SUCCESS) {
-        return this.processExitSafely(pullStateFileStatusCode);
+        jobExitCode = pullStateFileStatusCode;
+        return;
       }
 
       const startState = await this.tracer.startActiveSpan(FsSpanName.FS_READ, {}, contextAPI.active(), this.getSequenceNumber.bind(this));
@@ -138,8 +139,8 @@ export class OsmdbtService {
         this.logger.info({ msg: 'no diffs were found on this job, exiting gracefully', startState, endState });
 
         await tryCatch(this.mediator.removeLock());
-
-        return this.processExitSafely(ExitCodes.SUCCESS);
+        jobExitCode = ExitCodes.SUCCESS;
+        return;
       }
 
       await tryCatch(this.mediator.createAction({ state: +endState }));
@@ -152,7 +153,8 @@ export class OsmdbtService {
         tryCatch(this.uploadDiff(endState, span))
       );
       if (uploadDiffResponse.error) {
-        return this.processExitSafely(ExitCodes.S3_ERROR);
+        jobExitCode = ExitCodes.S3_ERROR;
+        return;
       }
 
       this.logger.info({ msg: 'finished the upload of the diff, uploading end state file', startState, endState });
@@ -179,7 +181,8 @@ export class OsmdbtService {
           tryCatch(this.rollback(span))
         );
         if (rollbackResponse.error) {
-          return this.processExitSafely(ExitCodes.ROLLBACK_FAILURE_ERROR);
+          jobExitCode = ExitCodes.ROLLBACK_FAILURE_ERROR;
+          return;
         }
         this.rootJobSpan.setAttribute(JobAttributes.JOB_STATE_END, startState);
         throw commitResult.error;
