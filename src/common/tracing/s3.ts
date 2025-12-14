@@ -11,6 +11,8 @@ export enum S3Attributes {
   S3_KEY = 's3.key',
   S3_CONTENT_TYPE = 's3.content.type',
   S3_ACL = 's3.acl',
+  S3_UPLOAD_COUNT = 's3.upload.count',
+  S3_UPLOAD_STATE = 's3.upload.state',
 }
 
 export enum S3Method {

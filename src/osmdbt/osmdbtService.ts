@@ -32,6 +32,7 @@ import { CommandSpanName, ExecutableAttributes } from '@src/common/tracing/execu
 import { getDiffDirPathComponents, streamToString, timerify } from '@src/util';
 import { tryCatch } from '@src/try-catch';
 import { FsRepository } from '@src/fs/fsRepository';
+import { S3Attributes } from '@src/common/tracing/s3';
 
 @singleton()
 @injectable()
@@ -138,24 +139,24 @@ export class OsmdbtService {
       if (startState === endState) {
         this.logger.info({ msg: 'no diffs were found on this job, exiting gracefully', startState, endState });
 
-        await tryCatch(this.mediator.removeLock());
-        jobExitCode = ExitCodes.SUCCESS;
+        // await tryCatch(this.mediator.removeLock()); // dont throw
         return;
       }
 
-      await tryCatch(this.mediator.createAction({ state: +endState }));
+      await this.mediator.createAction({ state: +endState }); // throw
 
-      await tryCatch(this.mediator.removeLock());
+      // await tryCatch(this.mediator.removeLock()); // dont throw
 
       this.logger.info({ msg: 'diff was created, starting the upload of end state diff', startState, endState });
 
-      const uploadDiffResponse = await this.tracer.startActiveSpan('upload-diff', {}, contextAPI.active(), async (span) =>
-        tryCatch(this.uploadDiff(endState, span))
-      );
-      if (uploadDiffResponse.error) {
-        jobExitCode = ExitCodes.S3_ERROR;
-        return;
-      }
+      await this.tracer.startActiveSpan('upload-diff', {}, contextAPI.active(), async (span) => {
+        try {
+          await this.uploadDiff(endState, span);
+        } catch (uploadDiffError) {
+          await tryCatch(this.mediator.updateAction({ status: ActionStatus.FAILED, metadata: { error: uploadDiffError } })); // dont throw
+          throw uploadDiffError;
+        }
+      });
 
       this.logger.info({ msg: 'finished the upload of the diff, uploading end state file', startState, endState });
 
@@ -165,34 +166,33 @@ export class OsmdbtService {
 
       this.logger.info({ msg: 'finished the upload of the end state file, commiting changes', startState, endState });
 
-      const commitResult = await this.tracer.startActiveSpan('commit-changes', {}, contextAPI.active(), async (span) =>
-        tryCatch(this.commitChanges(span))
+      const commitResult = await this.tracer.startActiveSpan(
+        'commit-changes',
+        {},
+        contextAPI.active(),
+        async (span) => tryCatch(this.commitChanges(span)) // dont throw yet and attempt rollback
       );
 
       if (commitResult.error) {
-        this.logger.error({
-          err: commitResult.error,
-          msg: 'an error accord during commiting changes for end state, rollbacking to start state',
-          startState,
-          endState,
+        await this.tracer.startActiveSpan('rollback', {}, contextAPI.active(), async (span) => {
+          try {
+            await this.rollback(span);
+          } catch (rollbackError) {
+            await tryCatch(this.mediator.updateAction({ status: ActionStatus.FAILED, metadata: { error: rollbackError } })); // dont throw
+            throw rollbackError;
+          }
         });
-
-        const rollbackResponse = await this.tracer.startActiveSpan('rollback', {}, contextAPI.active(), async (span) =>
-          tryCatch(this.rollback(span))
-        );
-        if (rollbackResponse.error) {
-          jobExitCode = ExitCodes.ROLLBACK_FAILURE_ERROR;
-          return;
-        }
         this.rootJobSpan.setAttribute(JobAttributes.JOB_STATE_END, startState);
+        await tryCatch(this.mediator.updateAction({ status: ActionStatus.FAILED, metadata: { error: commitResult.error } })); // dont throw
         throw commitResult.error;
       }
+
       const metadata: Record<string, unknown> = {};
       if (this.appConfig.shouldCollectInfo) {
         metadata.info = await this.collectInfo(endState);
       }
 
-      await tryCatch(this.mediator.updateAction({ status: ActionStatus.COMPLETED, metadata }));
+      await tryCatch(this.mediator.updateAction({ status: ActionStatus.COMPLETED, metadata })); // dont throw
 
       this.logger.info({ msg: 'job completed successfully, exiting gracefully', startState, endState });
     } catch (error) {
@@ -203,7 +203,7 @@ export class OsmdbtService {
         jobExitCode = ExitCodes.GENERAL_ERROR;
       }
 
-      await tryCatch(this.mediator.updateAction({ status: ActionStatus.FAILED, metadata: { error } }));
+      throw error;
     } finally {
       const jobDurationSeconds = (Date.now() - jobStartTime) / MILLISECONDS_IN_SECOND;
       this.jobDurationHistogram?.observe({ exitCode: jobExitCode.toString() }, jobDurationSeconds);
@@ -282,11 +282,8 @@ export class OsmdbtService {
 
       handleSpanOnError(span, error);
       exitCode = executable === 'osmdbt' ? ExitCodes.OSMDBT_ERROR : ExitCodes.OSMIUM_ERROR;
-      if (error instanceof Error) {
-        throw new ErrorWithExitCode(error.message, exitCode);
-      }
-
-      throw new ErrorWithExitCode(`${executable} errored`, exitCode);
+      const message = error instanceof Error ? error.message : `${executable} errored`;
+      throw new ErrorWithExitCode(message, exitCode);
     } finally {
       this.commandDurationHistogram?.observe({ executable, command, exitCode }, commandDurationSeconds);
     }
@@ -337,8 +334,7 @@ export class OsmdbtService {
       await this.s3Manager.uploadFile(filePath, uploadContent);
     });
 
-    // eslint-disable-next-line @typescript-eslint/naming-convention
-    span?.setAttributes({ 'upload.count': uploads.length, 'upload.state': sequenceNumber });
+    span?.setAttributes({ [S3Attributes.S3_UPLOAD_COUNT]: uploads.length, [S3Attributes.S3_UPLOAD_STATE]: sequenceNumber });
 
     try {
       await Promise.all(uploads);
@@ -361,6 +357,10 @@ export class OsmdbtService {
 
       handleSpanOnSuccess(span);
     } catch (error) {
+      this.logger.error({
+        err: error,
+        msg: 'an error accord during commiting changes for end state',
+      });
       handleSpanOnError(span, error);
       throw error;
     }
@@ -434,7 +434,7 @@ export class OsmdbtService {
     } catch (error) {
       this.logger.fatal({ msg: 'failed to rollback', err: error });
       handleSpanOnError(span, error);
-      throw error;
+      throw new ErrorWithExitCode('rollback error', ExitCodes.ROLLBACK_FAILURE_ERROR);
     }
   }
 
@@ -455,7 +455,7 @@ export class OsmdbtService {
 
   private async pullStateFile(): Promise<(typeof ExitCodes)[keyof typeof ExitCodes]> {
     const getStateFileFromS3Response = await this.tracer.startActiveSpan('get-start-state', {}, contextAPI.active(), async (span) => {
-      return tryCatch(this.s3Manager.getFile(STATE_FILE, span));
+      return tryCatch(this.s3Manager.getFile(STATE_FILE, span)); // dont throw and attribute exit code
     });
 
     if (getStateFileFromS3Response.error) {

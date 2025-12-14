@@ -2,10 +2,11 @@ import { Counter as PromCounter, Registry as PromRegistry } from 'prom-client';
 import { inject, injectable, singleton } from 'tsyringe';
 import { Span } from '@opentelemetry/api';
 import { type Logger } from '@map-colonies/js-logger';
-import { SERVICES } from '@src/common/constants';
+import { ExitCodes, SERVICES } from '@src/common/constants';
 import { type ConfigType } from '@src/common/config';
 import { ObjectStorageConfig } from '@src/common/interfaces';
 import { handleSpanOnError, handleSpanOnSuccess } from '@src/common/tracing/util';
+import { ErrorWithExitCode } from '@src/common/errors';
 import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 
 @singleton()
@@ -44,8 +45,9 @@ export class S3Manager {
     try {
       fileStream = await this.s3Repository.getObjectWrapper(this.objectStorageConfig.bucketName, fileName);
     } catch (error) {
+      this.logger.error({ err: error, msg: 'failed to get file from s3', fileName });
       handleSpanOnError(span, error, this.errorCounter);
-      throw error;
+      throw new ErrorWithExitCode('s3 get file error', ExitCodes.S3_ERROR);
     }
     handleSpanOnSuccess(span);
     return fileStream;
@@ -61,7 +63,7 @@ export class S3Manager {
     } catch (error) {
       this.logger.error({ err: error, msg: 'failed to put file to s3', fileName });
       handleSpanOnError(span, error, this.errorCounter);
-      throw error;
+      throw new ErrorWithExitCode('s3 put file error', ExitCodes.S3_ERROR);
     }
   }
 }

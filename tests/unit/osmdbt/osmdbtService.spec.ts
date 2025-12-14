@@ -577,7 +577,6 @@ describe('OsmdbtService', () => {
 
       mockedExeca.mockResolvedValue(resolvedExeca);
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
       const result = await (
         osmdbtService as unknown as { runCommand: (executable: string, command: string, commandArgs: string[]) => Promise<string> }
       ).runCommand(executable, command, commandArgs);
