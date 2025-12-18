@@ -13,6 +13,7 @@ import { ConfigType, getConfig } from './common/config';
 import { s3ClientFactory, s3RepositoryFactory } from './s3';
 import { S3_REPOSITORY } from './s3/s3Repository';
 import { isSingleTask, OSMDBT_PROCESSOR, OsmdbtProcessor, osmdbtProcessorFactory } from './osmdbt';
+import { ArstotzkaConfig } from './common/interfaces';
 
 export interface RegisterOptions {
   override?: InjectionObject<unknown>[];
@@ -94,9 +95,9 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
           const config = container.resolve<ConfigType>(SERVICES.CONFIG);
           const logger = container.resolve<Logger>(SERVICES.LOGGER);
 
-          const arstotzkaConfig = config.get('arstotzka');
+          const arstotzkaConfig = config.get('arstotzka') as ArstotzkaConfig;
 
-          if (!arstotzkaConfig?.enabled) {
+          if (!arstotzkaConfig.enabled) {
             const msg = 'Mediator is not enabled, but it is required for the application to run';
             logger.fatal({ msg });
             throw new Error(msg);

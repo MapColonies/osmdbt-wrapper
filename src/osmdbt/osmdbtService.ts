@@ -13,9 +13,10 @@ import {
   DIFF_FILE_EXTENTION,
   Executable,
   ExitCodes,
+  GLOBAL_OSMDBT_NON_VERBOSE_ARGS,
+  GLOBAL_OSMDBT_VERBOSE_ARGS,
   MILLISECONDS_IN_SECOND,
   OSMDBT_BIN_PATH,
-  OSMDBT_CONFIG_PATH,
   OSMDBT_DONE_LOG_PREFIX,
   OsmdbtCommand,
   SERVICES,
@@ -60,11 +61,10 @@ export class OsmdbtService {
   ) {
     this.appConfig = this.config.get('app') as AppConfig;
     this.osmdbtConfig = this.config.get('osmdbt') as OsmdbtConfig;
-    this.globalOsmdbtArgs = this.osmdbtConfig.verbose ? ['-c', OSMDBT_CONFIG_PATH] : ['-c', OSMDBT_CONFIG_PATH, '-q'];
+    this.globalOsmdbtArgs = this.osmdbtConfig.verbose ? GLOBAL_OSMDBT_VERBOSE_ARGS : GLOBAL_OSMDBT_NON_VERBOSE_ARGS;
     this.osmdbtStatePath = join(this.osmdbtConfig.changesDir, STATE_FILE);
     this.osmdbtStateBackupPath = join(this.osmdbtConfig.changesDir, BACKUP_DIR_NAME, STATE_FILE);
 
-    /* istanbul ignore next */
     if (registry !== undefined) {
       const { osmdbtCommandDurationSeconds, osmdbtJobDurationSeconds } = (this.config.get('telemetry.metrics') as MetricsConfig).buckets;
       this.jobCounter = new PromCounter({
@@ -462,7 +462,7 @@ export class OsmdbtService {
       return ExitCodes.S3_ERROR;
     }
 
-    const writeFileResponse = await this.tracer.startActiveSpan('write-start-state', {}, contextAPI.active(), async (span) => {
+    const writeFileResponse = await this.tracer.startActiveSpan('write-start-state', {}, contextAPI.active(), async () => {
       const stateFileContent = await streamToString(getStateFileFromS3Response.data);
       const writeFilesPromises = [this.osmdbtStatePath, this.osmdbtStateBackupPath].map(async (filePath) => {
         this.logger.debug({ msg: 'writing file', filePath });

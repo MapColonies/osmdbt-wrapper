@@ -506,7 +506,7 @@ describe('OsmdbtService', () => {
       jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
       (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
-      //@ts-expect-error
+      //@ts-expect-error due to private function
       jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue('{"test": "test"}');
       jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockResolvedValue(undefined);
       jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockResolvedValue(undefined);

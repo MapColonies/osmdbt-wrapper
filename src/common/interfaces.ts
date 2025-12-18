@@ -21,7 +21,7 @@ export interface OsmiumConfig {
 
 export interface AppConfig {
   shouldCollectInfo: boolean;
-  cron?: { enabled: true; expression: string; failurePenaltySeconds: number } | { enabled: false };
+  cron?: { enabled: true; expression: string; failurePenalty: number } | { enabled: false };
 }
 
 export interface TracingConfig {

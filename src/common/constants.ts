@@ -31,6 +31,8 @@ export enum OsmdbtCommand {
 }
 
 export const OSMDBT_CONFIG_PATH = join(OSMDBT_BASE_PATH, 'config', 'osmdbt-config.yaml');
+export const GLOBAL_OSMDBT_VERBOSE_ARGS = ['-c', OSMDBT_CONFIG_PATH];
+export const GLOBAL_OSMDBT_NON_VERBOSE_ARGS = ['-c', OSMDBT_CONFIG_PATH, '-q'];
 export const OSMDBT_BIN_PATH = join(OSMDBT_BASE_PATH, 'build', 'src');
 export const DIFF_TOP_DIR_DIVIDER = 1000000;
 export const DIFF_BOTTOM_DIR_DIVIDER = 1000;

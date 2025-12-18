@@ -19,6 +19,7 @@ import { evaluateContentType } from '../util';
 export const S3_REPOSITORY = Symbol('S3Repository');
 export type S3Repository = ReturnType<typeof createS3Repositry>;
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export const createS3Repositry = (client: S3Client, baseS3SnapAttributes: Attributes, aclConfig: ObjectCannedACL, tracer: Tracer, logger: Logger) => {
   return {
     async headObjectWrapper(bucketName: string, key: string): Promise<HeadObjectCommandOutput | undefined> {

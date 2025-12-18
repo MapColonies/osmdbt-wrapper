@@ -25,7 +25,7 @@
     "cron": {
       "enabled": false,
       "expression": "*/30 * * * * *",
-      "failurePenaltySeconds": 1
+      "failurePenalty": 1
     },
     "shouldCollectInfo": false
   },

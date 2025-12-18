@@ -31,7 +31,7 @@
         "__format": "boolean"
       },
       "expression": "APP_CRON_EXPRESSION",
-      "failurePenaltySeconds": {
+      "failurePenalty": {
         "__name": "APP_CRON_FAILURE_PENALTY",
         "__format": "number"
       }
