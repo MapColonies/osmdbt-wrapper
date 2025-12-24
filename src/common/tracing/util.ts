@@ -4,11 +4,8 @@ import { ErrorWithExitCode } from '../errors';
 
 export const TRACER_NAME = 'osmdbt-wrapper';
 
-export const promisifySpan = async <T>(spanName: string, spanAttributes: Attributes, context: Context, fn: () => Promise<T>): Promise<T> => {
-  const tracer = traceAPI.getTracer(TRACER_NAME);
-
+export const promisifySpan = async <T>(fn: () => Promise<T>, span: Span): Promise<T> => {
   return new Promise((resolve, reject) => {
-    const span = tracer.startSpan(spanName, { attributes: spanAttributes }, context);
     fn()
       .then((result) => {
         handleSpanOnSuccess(span);
@@ -51,4 +48,15 @@ export const handleSpanOnError = (span?: Span, error?: unknown, promCounter: Pro
   }
 
   span.end();
+};
+
+export const startActivePromisifiedSpan = async <T>(
+  spanName: string,
+  spanAttributes: Attributes,
+  context: Context,
+  fn: () => Promise<T>
+): Promise<T> => {
+  const tracer = traceAPI.getTracer(TRACER_NAME);
+  const span = tracer.startSpan(spanName, { attributes: spanAttributes }, context);
+  return promisifySpan(fn, span);
 };

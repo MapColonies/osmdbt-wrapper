@@ -1,5 +1,24 @@
 import { contentType } from 'mime-types';
-import { DIFF_TOP_DIR_DIVIDER, DIFF_BOTTOM_DIR_DIVIDER, DIFF_STATE_FILE_MODULO, SEQUENCE_NUMBER_COMPONENT_LENGTH } from './common/constants';
+import { DIFF_TOP_DIR_DIVIDER, DIFF_BOTTOM_DIR_DIVIDER, DIFF_STATE_FILE_MODULO, SEQUENCE_NUMBER_COMPONENT_LENGTH } from '../common/constants';
+
+interface Success<T> {
+  data: T;
+}
+
+interface Failure<E> {
+  error: E;
+}
+
+type Result<T, E = Error> = Success<T> | Failure<E>;
+
+export async function attemptSafely<T, E = Error>(fn: () => Promise<T>): Promise<Result<T, E>> {
+  try {
+    const data = await fn();
+    return { data };
+  } catch (error) {
+    return { error: error as E };
+  }
+}
 
 export const streamToString = async (stream: NodeJS.ReadStream): Promise<string> => {
   return new Promise((resolve, reject) => {

@@ -1,4 +1,13 @@
-export const ROOT_JOB_SPAN_NAME = 'root-job';
+export enum SpanName {
+  ROOT_JOB = 'root-job',
+  PREPARE_ENVIRONMENT = 'prepare-environment',
+  PULL_STATE_FILE = 'pull-state-file',
+  UPLOAD_DIFF = 'upload-diff',
+  COMMIT_CHANGES = 'commit-changes',
+  MARK_LOGS = 'mark-logs',
+  POST_CATCHUP = 'post-catchup',
+  ROLLBACK = 'rollback',
+}
 
 export enum JobAttributes {
   JOB_ROLLBACK = 'job.rollback',

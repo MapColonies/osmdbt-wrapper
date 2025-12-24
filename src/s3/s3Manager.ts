@@ -1,11 +1,9 @@
 import { Counter as PromCounter, Registry as PromRegistry } from 'prom-client';
 import { inject, injectable, singleton } from 'tsyringe';
-import { Span } from '@opentelemetry/api';
 import { type Logger } from '@map-colonies/js-logger';
 import { ExitCodes, SERVICES } from '@src/common/constants';
 import { type ConfigType } from '@src/common/config';
 import { ObjectStorageConfig } from '@src/common/interfaces';
-import { handleSpanOnError, handleSpanOnSuccess } from '@src/common/tracing/util';
 import { ErrorWithExitCode } from '@src/common/errors';
 import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 
@@ -13,7 +11,7 @@ import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 @injectable()
 export class S3Manager {
   private readonly objectStorageConfig: ObjectStorageConfig;
-  private readonly filesCounter?: PromCounter;
+  private readonly uploadCounter?: PromCounter;
   private readonly errorCounter?: PromCounter;
 
   public constructor(
@@ -25,7 +23,7 @@ export class S3Manager {
     this.objectStorageConfig = this.config.get('objectStorage') as ObjectStorageConfig;
 
     if (registry !== undefined) {
-      this.filesCounter = new PromCounter({
+      this.uploadCounter = new PromCounter({
         name: 'osmdbt_files_count',
         help: 'The total number of files uploaded to s3',
         registers: [registry],
@@ -38,31 +36,29 @@ export class S3Manager {
     }
   }
 
-  public async getFile(fileName: string, span?: Span): Promise<NodeJS.ReadStream> {
+  public async getFile(fileName: string): Promise<NodeJS.ReadStream> {
     this.logger.debug({ msg: 'getting file from s3' });
     let fileStream: NodeJS.ReadStream;
 
     try {
       fileStream = await this.s3Repository.getObjectWrapper(this.objectStorageConfig.bucketName, fileName);
     } catch (error) {
+      this.errorCounter?.inc();
       this.logger.error({ err: error, msg: 'failed to get file from s3', fileName });
-      handleSpanOnError(span, error, this.errorCounter);
       throw new ErrorWithExitCode('s3 get file error', ExitCodes.S3_ERROR);
     }
-    handleSpanOnSuccess(span);
     return fileStream;
   }
 
-  public async uploadFile(fileName: string, buffer: Buffer, span?: Span): Promise<void> {
+  public async uploadFile(fileName: string, buffer: Buffer): Promise<void> {
     this.logger.debug({ msg: 'putting file to s3', fileName });
 
     try {
       await this.s3Repository.putObjectWrapper(this.objectStorageConfig.bucketName, fileName, buffer);
-      this.filesCounter?.inc();
-      handleSpanOnSuccess(span);
+      this.uploadCounter?.inc();
     } catch (error) {
+      this.errorCounter?.inc();
       this.logger.error({ err: error, msg: 'failed to put file to s3', fileName });
-      handleSpanOnError(span, error, this.errorCounter);
       throw new ErrorWithExitCode('s3 put file error', ExitCodes.S3_ERROR);
     }
   }

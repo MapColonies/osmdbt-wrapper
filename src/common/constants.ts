@@ -16,11 +16,12 @@ export const SERVICES = {
   TRACER: Symbol('Tracer'),
   METRICS: Symbol('METRICS'),
   CLEANUP_REGISTRY: Symbol('CleanupRegistry'),
-  ON_SIGNAL: Symbol('OnSignal'),
   S3_CLIENT: Symbol('S3Client'),
   MEDIATOR: Symbol('Mediator'),
 } satisfies Record<string, symbol>;
 /* eslint-enable @typescript-eslint/naming-convention */
+
+export const ON_SIGNAL = Symbol('OnSignal');
 
 export type Executable = 'osmdbt' | 'osmium';
 
@@ -57,7 +58,3 @@ export const ExitCodes = {
   TERMINATED: 130,
 };
 /* eslint-enable @typescript-eslint/naming-convention */
-
-export const MILLISECONDS_IN_SECOND = 1000;
-// eslint-disable-next-line @typescript-eslint/no-magic-numbers
-export const FORCE_SHUTDOWN_TIMEOUT_MS = 10 * MILLISECONDS_IN_SECOND;
