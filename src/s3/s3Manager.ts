@@ -36,21 +36,22 @@ export class S3Manager {
   }
 
   public async getFile(fileName: string): Promise<NodeJS.ReadStream> {
-    this.logger.debug({ msg: 'getting file from s3' });
+    this.logger.debug({ msg: 'getting file from s3', bucketName: this.objectStorageConfig.bucketName, fileName });
     let fileStream: NodeJS.ReadStream;
 
     try {
+      console.log(this.objectStorageConfig.bucketName, fileName);
       fileStream = await this.s3Repository.getObjectWrapper(this.objectStorageConfig.bucketName, fileName);
+      return fileStream;
     } catch (error) {
       this.errorCounter?.inc();
       this.logger.error({ err: error, msg: 'failed to get file from s3', fileName });
       throw new ErrorWithExitCode('s3 get file error', ExitCodes.S3_ERROR);
     }
-    return fileStream;
   }
 
   public async uploadFile(fileName: string, buffer: Buffer): Promise<void> {
-    this.logger.debug({ msg: 'putting file to s3', fileName });
+    this.logger.debug({ msg: 'putting file to s3', bucketName: this.objectStorageConfig.bucketName, fileName });
 
     try {
       await this.s3Repository.putObjectWrapper(this.objectStorageConfig.bucketName, fileName, buffer);

@@ -1,14 +1,17 @@
 import * as fsPromises from 'fs/promises';
-import { type Dirent } from 'fs';
 import jsLogger from '@map-colonies/js-logger';
 import { initConfig } from '@src/common/config';
 import { FsRepository } from '@src/fs/fsRepository';
+import { ErrorWithExitCode } from '@src/common/errors';
+import { ExitCodes } from '@src/common/constants';
 
 jest.mock('fs/promises');
 
-//,
+const MOCK_DIR_PATH = '/mock/path';
+const MOCK_FILE_PATH = '/mock/path/file.txt';
 
 let fsRepository: FsRepository;
+
 describe('fsRepository', () => {
   beforeAll(async () => {
     await initConfig(true);
@@ -18,167 +21,162 @@ describe('fsRepository', () => {
     fsRepository = new FsRepository(jsLogger({ enabled: false }));
   });
 
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
   describe('readFile', () => {
-    const mockReadFile = fsPromises.readFile as jest.MockedFunction<typeof fsPromises.readFile>;
-    const mockPath = '/mock/path/file.txt';
-
     it('should run successfully', async () => {
-      const mockData = Buffer.from('lorem ipsum');
-      mockReadFile.mockResolvedValue(mockData);
+      const expected = Buffer.from('lorem ipsum');
+      (fsPromises.readFile as jest.Mock).mockResolvedValue(expected);
 
-      await expect(fsRepository.readFile(mockPath)).resolves.toBe(mockData);
+      await expect(fsRepository.readFile(MOCK_FILE_PATH, 'utf8')).resolves.toBe(expected);
 
-      expect(mockReadFile).toHaveBeenCalledTimes(1);
-      mockReadFile.mockReset();
+      expect(fsPromises.readFile).toHaveBeenCalledTimes(1);
+      expect(fsPromises.readFile).toHaveBeenCalledWith(MOCK_FILE_PATH, 'utf8');
     });
 
     it('should fail becuase fs.writeFile throws error', async () => {
       const error = new Error('some error');
 
-      mockReadFile.mockRejectedValueOnce(error);
+      (fsPromises.readFile as jest.Mock).mockRejectedValueOnce(error);
 
-      await expect(fsRepository.readFile(mockPath)).rejects.toBe(error);
-      mockReadFile.mockReset();
+      await expect(fsRepository.readFile(MOCK_FILE_PATH)).rejects.toStrictEqual(new ErrorWithExitCode('fs error', ExitCodes.FS_ERROR));
+      expect(fsPromises.readFile).toHaveBeenCalledTimes(1);
+      expect(fsPromises.readFile).toHaveBeenCalledWith(MOCK_FILE_PATH, undefined);
     });
   });
 
   describe('mkdir', () => {
-    const mockMkdir = fsPromises.mkdir as jest.MockedFunction<typeof fsPromises.mkdir>;
-
-    const mockPath = '/mock/path';
     it('should run successfully', async () => {
-      mockMkdir.mockResolvedValue(mockPath);
+      (fsPromises.mkdir as jest.Mock).mockResolvedValue(MOCK_DIR_PATH);
 
-      await expect(fsRepository.mkdir(mockPath)).resolves.toBe(mockPath);
+      await expect(fsRepository.mkdir(MOCK_DIR_PATH)).resolves.toBe(MOCK_DIR_PATH);
 
-      expect(mockMkdir).toHaveBeenCalledTimes(1);
-      mockMkdir.mockReset();
+      expect(fsPromises.mkdir).toHaveBeenCalledTimes(1);
+      expect(fsPromises.mkdir).toHaveBeenCalledWith(MOCK_DIR_PATH, { recursive: true });
     });
 
     it('should fail becuase fs.writeFile throws error', async () => {
       const error = new Error('some error');
 
-      mockMkdir.mockRejectedValueOnce(error);
+      (fsPromises.mkdir as jest.Mock).mockRejectedValueOnce(error);
 
-      await expect(fsRepository.mkdir(mockPath)).rejects.toBe(error);
-      mockMkdir.mockReset();
+      await expect(fsRepository.mkdir(MOCK_FILE_PATH)).rejects.toStrictEqual(new ErrorWithExitCode('fs error', ExitCodes.FS_ERROR));
+      expect(fsPromises.mkdir).toHaveBeenCalledTimes(1);
+      expect(fsPromises.mkdir).toHaveBeenCalledWith(MOCK_FILE_PATH, { recursive: true });
     });
   });
 
   describe('appendFile', () => {
-    const mockAppendFile = fsPromises.appendFile as jest.MockedFunction<typeof fsPromises.appendFile>;
-
-    const mockPath = '/mock/path';
     const mockData = 'mock data';
     it('should run successfully', async () => {
-      mockAppendFile.mockResolvedValue(undefined);
+      (fsPromises.appendFile as jest.Mock).mockResolvedValue(undefined);
 
-      await expect(fsRepository.appendFile(mockPath, mockData, 'utf-8')).resolves.toBeUndefined();
+      await expect(fsRepository.appendFile(MOCK_FILE_PATH, mockData, 'utf-8')).resolves.toBeUndefined();
 
-      expect(mockAppendFile).toHaveBeenCalledTimes(1);
-      mockAppendFile.mockReset();
+      expect(fsPromises.appendFile).toHaveBeenCalledTimes(1);
+      expect(fsPromises.appendFile).toHaveBeenCalledWith(MOCK_FILE_PATH, mockData, 'utf-8');
     });
 
     it('should fail becuase fs.writeFile throws error', async () => {
       const error = new Error('some error');
+      (fsPromises.appendFile as jest.Mock).mockRejectedValueOnce(error);
 
-      mockAppendFile.mockRejectedValueOnce(error);
+      await expect(fsRepository.appendFile(MOCK_FILE_PATH, mockData, 'utf-8')).rejects.toStrictEqual(
+        new ErrorWithExitCode('fs error', ExitCodes.FS_ERROR)
+      );
 
-      await expect(fsRepository.appendFile(mockPath, mockData, 'utf-8')).rejects.toBe(error);
-      mockAppendFile.mockReset();
+      expect(fsPromises.appendFile).toHaveBeenCalledTimes(1);
+      expect(fsPromises.appendFile).toHaveBeenCalledWith(MOCK_FILE_PATH, mockData, 'utf-8');
     });
   });
 
   describe('readdir', () => {
-    const mockReaddir = fsPromises.readdir as jest.MockedFunction<typeof fsPromises.readdir>;
-
-    const mockPath = '/mock/path';
-    const mockData = ['file1.txt', 'file2.txt'];
     it('should run successfully', async () => {
-      mockReaddir.mockResolvedValue(mockData as unknown as Dirent[]);
+      const expected = ['file1.txt', 'file2.txt'];
+      (fsPromises.readdir as jest.Mock).mockResolvedValue(expected);
 
-      await expect(fsRepository.readdir(mockPath)).resolves.toEqual(mockData);
+      await expect(fsRepository.readdir(MOCK_DIR_PATH)).resolves.toEqual(expected);
 
-      expect(mockReaddir).toHaveBeenCalledTimes(1);
-      mockReaddir.mockReset();
+      expect(fsPromises.readdir).toHaveBeenCalledTimes(1);
+      expect(fsPromises.readdir).toHaveBeenCalledWith(MOCK_DIR_PATH);
     });
 
     it('should fail becuase fs.writeFile throws error', async () => {
       const error = new Error('some error');
+      (fsPromises.readdir as jest.Mock).mockRejectedValueOnce(error);
 
-      mockReaddir.mockRejectedValueOnce(error);
+      await expect(fsRepository.readdir(MOCK_DIR_PATH)).rejects.toStrictEqual(new ErrorWithExitCode('fs error', ExitCodes.FS_ERROR));
 
-      await expect(fsRepository.readdir(mockPath)).rejects.toEqual(error);
-      mockReaddir.mockReset();
+      expect(fsPromises.readdir).toHaveBeenCalledTimes(1);
+      expect(fsPromises.readdir).toHaveBeenCalledWith(MOCK_DIR_PATH);
     });
   });
 
   describe('rename', () => {
-    const mockRename = fsPromises.rename as jest.MockedFunction<typeof fsPromises.rename>;
-
-    const mockFirstPath = '/mock/first/path';
-    const mockSecondPath = '/mock/second/path';
     it('should run successfully', async () => {
-      mockRename.mockResolvedValue(undefined);
+      const renamedFilePath = '/mock/renamed/file.txt';
+      (fsPromises.rename as jest.Mock).mockResolvedValue(undefined);
 
-      await expect(fsRepository.rename(mockFirstPath, mockSecondPath)).resolves.toBeUndefined();
+      await expect(fsRepository.rename(MOCK_FILE_PATH, renamedFilePath)).resolves.toBeUndefined();
 
-      expect(mockRename).toHaveBeenCalledTimes(1);
-      mockRename.mockReset();
+      expect(fsPromises.rename).toHaveBeenCalledTimes(1);
+      expect(fsPromises.rename).toHaveBeenCalledWith(MOCK_FILE_PATH, renamedFilePath);
     });
 
     it('should fail becuase fs.writeFile throws error', async () => {
       const error = new Error('some error');
+      (fsPromises.rename as jest.Mock).mockRejectedValueOnce(error);
 
-      mockRename.mockRejectedValueOnce(error);
+      await expect(fsRepository.rename(MOCK_FILE_PATH, MOCK_FILE_PATH)).rejects.toStrictEqual(new ErrorWithExitCode('fs error', ExitCodes.FS_ERROR));
 
-      await expect(fsRepository.rename(mockFirstPath, mockSecondPath)).rejects.toEqual(error);
-      mockRename.mockReset();
+      expect(fsPromises.rename).toHaveBeenCalledTimes(1);
+      expect(fsPromises.rename).toHaveBeenCalledWith(MOCK_FILE_PATH, MOCK_FILE_PATH);
     });
   });
 
   describe('unlink', () => {
-    const mockUnlink = fsPromises.unlink as jest.MockedFunction<typeof fsPromises.unlink>;
-
-    const mockPath = '/mock/path';
     it('should run successfully', async () => {
-      mockUnlink.mockResolvedValue(undefined);
+      (fsPromises.unlink as jest.Mock).mockResolvedValue(undefined);
 
-      await expect(fsRepository.unlink(mockPath)).resolves.toBeUndefined();
+      await expect(fsRepository.unlink(MOCK_FILE_PATH)).resolves.toBeUndefined();
 
-      expect(mockUnlink).toHaveBeenCalledTimes(1);
-      mockUnlink.mockReset();
+      expect(fsPromises.unlink).toHaveBeenCalledTimes(1);
+      expect(fsPromises.unlink).toHaveBeenCalledWith(MOCK_FILE_PATH);
     });
 
     it('should fail becuase fs.writeFile throws error', async () => {
       const error = new Error('some error');
+      (fsPromises.unlink as jest.Mock).mockRejectedValueOnce(error);
 
-      mockUnlink.mockRejectedValueOnce(error);
+      await expect(fsRepository.unlink(MOCK_FILE_PATH)).rejects.toStrictEqual(new ErrorWithExitCode('fs error', ExitCodes.FS_ERROR));
 
-      await expect(fsRepository.unlink(mockPath)).rejects.toEqual(error);
-      mockUnlink.mockReset();
+      expect(fsPromises.unlink).toHaveBeenCalledTimes(1);
+      expect(fsPromises.unlink).toHaveBeenCalledWith(MOCK_FILE_PATH);
     });
   });
 
   describe('writeFile', () => {
-    const mockWriteFile = fsPromises.writeFile as jest.MockedFunction<typeof fsPromises.writeFile>;
-
     it('should run successfully', async () => {
-      mockWriteFile.mockResolvedValue(undefined);
+      const data = 'mock content';
+      (fsPromises.writeFile as jest.Mock).mockResolvedValue(undefined);
 
-      await expect(fsRepository.writeFile('/mock/path/file.txt', 'mock content')).resolves.toBeUndefined();
+      await expect(fsRepository.writeFile(MOCK_FILE_PATH, data)).resolves.toBeUndefined();
 
-      expect(mockWriteFile).toHaveBeenCalledTimes(1);
-      mockWriteFile.mockReset();
+      expect(fsPromises.writeFile).toHaveBeenCalledTimes(1);
+      expect(fsPromises.writeFile).toHaveBeenCalledWith(MOCK_FILE_PATH, data, undefined);
     });
 
     it('should fail becuase fs.writeFile throws error', async () => {
+      const data = 'mock content';
       const error = new Error('some error');
+      (fsPromises.writeFile as jest.Mock).mockRejectedValueOnce(error);
 
-      mockWriteFile.mockRejectedValueOnce(error);
+      await expect(fsRepository.writeFile(MOCK_FILE_PATH, data)).rejects.toStrictEqual(new ErrorWithExitCode('fs error', ExitCodes.FS_ERROR));
 
-      await expect(fsRepository.writeFile('/mock/path/file.txt', 'mock content')).rejects.toBe(error);
-      mockWriteFile.mockReset();
+      expect(fsPromises.writeFile).toHaveBeenCalledTimes(1);
+      expect(fsPromises.writeFile).toHaveBeenCalledWith(MOCK_FILE_PATH, data, undefined);
     });
   });
 });
