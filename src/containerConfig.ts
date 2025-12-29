@@ -5,7 +5,7 @@ import { instanceCachingFactory, instancePerContainerCachingFactory } from 'tsyr
 import { trace } from '@opentelemetry/api';
 import { Registry } from 'prom-client';
 import { DependencyContainer } from 'tsyringe/dist/typings/types';
-import jsLogger, { Logger } from '@map-colonies/js-logger';
+import jsLogger, { type Logger } from '@map-colonies/js-logger';
 import { InjectionObject, registerDependencies } from '@common/dependencyRegistration';
 import { ON_SIGNAL, SERVICES, SERVICE_NAME } from '@common/constants';
 import { getTracing } from '@common/tracing';
@@ -118,7 +118,6 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
           cleanupRegistry.register({
             id: OSMDBT_PROCESSOR,
             func: async () => {
-              // const osmdbtProcess = osmdbtProcessor();
               if (!isSingleTask(osmdbtProcessor)) {
                 await osmdbtProcessor.destroy();
               }

@@ -1,7 +1,7 @@
 import { DependencyContainer, FactoryFunction } from 'tsyringe';
 import { S3Client } from '@aws-sdk/client-s3';
-import { Logger } from '@map-colonies/js-logger';
-import { ConfigType } from '@src/common/config';
+import { type Logger } from '@map-colonies/js-logger';
+import { type ConfigType } from '@src/common/config';
 import { SERVICES } from '../common/constants';
 import { ObjectStorageConfig } from '../common/interfaces';
 import { createS3Repositry, S3Repository } from './s3Repository';

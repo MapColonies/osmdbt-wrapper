@@ -1,5 +1,5 @@
 import { Counter as PromCounter, Registry as PromRegistry } from 'prom-client';
-import { inject, injectable, singleton } from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
 import { type Logger } from '@map-colonies/js-logger';
 import { ExitCodes, SERVICES } from '@src/common/constants';
 import { type ConfigType } from '@src/common/config';
@@ -7,7 +7,6 @@ import { ObjectStorageConfig } from '@src/common/interfaces';
 import { ErrorWithExitCode } from '@src/common/errors';
 import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 
-@singleton()
 @injectable()
 export class S3Manager {
   private readonly objectStorageConfig: ObjectStorageConfig;

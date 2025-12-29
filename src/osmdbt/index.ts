@@ -1,7 +1,7 @@
 import { ScheduledTask, schedule as cronSchedule } from 'node-cron';
 import { type Logger } from '@map-colonies/js-logger';
 import { DependencyContainer, FactoryFunction } from 'tsyringe';
-import { ConfigType } from '@src/common/config';
+import { type ConfigType } from '@src/common/config';
 import { SERVICES } from '@src/common/constants';
 import { AppConfig } from '@src/common/interfaces';
 import { delay } from '@src/common/util';

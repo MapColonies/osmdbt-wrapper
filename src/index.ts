@@ -2,12 +2,13 @@
 import 'reflect-metadata';
 import { createServer } from 'http';
 import { createTerminus } from '@godaddy/terminus';
-import { Logger } from '@map-colonies/js-logger';
+import { type Logger } from '@map-colonies/js-logger';
 import { DependencyContainer } from 'tsyringe';
 import { ON_SIGNAL, SERVICES } from '@common/constants';
-import { ConfigType } from '@common/config';
+import { type ConfigType } from '@common/config';
 import { getApp } from './app';
 import { isSingleTask, OSMDBT_PROCESSOR, OsmdbtProcessor } from './osmdbt';
+import { stubHealthCheck } from './common/util';
 
 let depContainer: DependencyContainer | undefined;
 
@@ -19,7 +20,6 @@ void getApp()
 
     const port = config.get('server.port');
 
-    const stubHealthCheck = async (): Promise<void> => Promise.resolve(); // TODO: real healthcheck
     const server = createTerminus(createServer(app), {
       healthChecks: { '/liveness': stubHealthCheck },
       onSignal: container.resolve(ON_SIGNAL),
@@ -34,13 +34,14 @@ void getApp()
       await shutDown();
 
       server.close();
-    } else {
-      await osmdbtProcess.execute();
-
-      server.listen(port, () => {
-        logger.info({ msg: `app started on port ${port}` });
-      });
+      return;
     }
+
+    await osmdbtProcess.execute();
+
+    server.listen(port, () => {
+      logger.info({ msg: `app started on port ${port}` });
+    });
   })
   .catch(async (error: Error) => {
     const errorLogger =

@@ -23,14 +23,6 @@ export const SERVICES = {
 
 export const ON_SIGNAL = Symbol('OnSignal');
 
-export type Executable = 'osmdbt' | 'osmium';
-
-export enum OsmdbtCommand {
-  GET_LOG = 'osmdbt-get-log',
-  CREATE_DIFF = 'osmdbt-create-diff',
-  CATCHUP = 'osmdbt-catchup',
-}
-
 export const OSMDBT_CONFIG_PATH = join(OSMDBT_BASE_PATH, 'config', 'osmdbt-config.yaml');
 export const GLOBAL_OSMDBT_VERBOSE_ARGS = ['-c', OSMDBT_CONFIG_PATH];
 export const GLOBAL_OSMDBT_NON_VERBOSE_ARGS = ['-c', OSMDBT_CONFIG_PATH, '-q'];

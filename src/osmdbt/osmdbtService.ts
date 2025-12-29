@@ -1,36 +1,23 @@
 import { join } from 'path';
-import execa from 'execa';
 import { type Logger } from '@map-colonies/js-logger';
 import { ActionStatus } from '@map-colonies/arstotzka-common';
-import { Span, SpanKind, SpanStatusCode, context as contextAPI, type Tracer } from '@opentelemetry/api';
+import { Span, SpanStatusCode, type Tracer } from '@opentelemetry/api';
 import { inject, injectable } from 'tsyringe';
 import { handleSpanOnError, handleSpanOnSuccess } from '@map-colonies/telemetry';
-import { ATTR_RPC_SYSTEM } from '@opentelemetry/semantic-conventions/incubating';
 import { Histogram, Counter as PromCounter, Registry as PromRegistry } from 'prom-client';
 import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
-import { attemptSafely, getDiffDirPathComponents, streamToString, timerify } from '@src/common/util';
-import {
-  BACKUP_DIR_NAME,
-  DIFF_FILE_EXTENTION,
-  Executable,
-  ExitCodes,
-  GLOBAL_OSMDBT_NON_VERBOSE_ARGS,
-  GLOBAL_OSMDBT_VERBOSE_ARGS,
-  OSMDBT_BIN_PATH,
-  OSMDBT_DONE_LOG_PREFIX,
-  OsmdbtCommand,
-  SERVICES,
-  STATE_FILE,
-} from '@src/common/constants';
+import { attemptSafely, getDiffDirPathComponents, streamToString } from '@src/common/util';
+import { BACKUP_DIR_NAME, DIFF_FILE_EXTENTION, ExitCodes, OSMDBT_DONE_LOG_PREFIX, SERVICES, STATE_FILE } from '@src/common/constants';
 import { ErrorWithExitCode } from '@src/common/errors';
 import { JobAttributes, SpanName } from '@src/common/tracing/job';
 import { type ConfigType } from '@src/common/config';
-import { AppConfig, MetricsConfig, OsmdbtConfig, OsmiumConfig } from '@src/common/interfaces';
+import { AppConfig, MetricsConfig, OsmdbtConfig } from '@src/common/interfaces';
 import { S3Manager } from '@src/s3/s3Manager';
-import { CommandSpanName, ExecutableAttributes } from '@src/common/tracing/executable';
 import { FsRepository } from '@src/fs/fsRepository';
 import { S3Attributes } from '@src/common/tracing/s3';
 import { promisifySpan } from '@src/common/tracing/util';
+import { OsmdbtExecutable } from '@src/executables/osmdbt';
+import { OsmiumExecutable } from '@src/executables/osmium';
 
 @injectable()
 export class OsmdbtService {
@@ -41,7 +28,6 @@ export class OsmdbtService {
 
   private readonly jobCounter?: PromCounter;
   private readonly jobDurationHistogram?: Histogram;
-  private readonly commandDurationHistogram?: Histogram;
 
   public constructor(
     @inject(SERVICES.LOGGER) private readonly logger: Logger,
@@ -50,13 +36,15 @@ export class OsmdbtService {
     @inject(SERVICES.MEDIATOR) private readonly mediator: StatefulMediator,
     @inject(S3Manager) private readonly s3Manager: S3Manager,
     @inject(FsRepository) private readonly fsRepository: FsRepository,
+    @inject(OsmdbtExecutable) private readonly osmdbtExecutable: OsmdbtExecutable,
+    @inject(OsmiumExecutable) private readonly osmiumExecutable: OsmiumExecutable,
     @inject(SERVICES.METRICS) registry?: PromRegistry
   ) {
     this.appConfig = this.config.get('app') as AppConfig;
     this.osmdbtConfig = this.config.get('osmdbt') as OsmdbtConfig;
 
     if (registry !== undefined) {
-      const { osmdbtCommandDurationSeconds, osmdbtJobDurationSeconds } = (this.config.get('telemetry.metrics') as MetricsConfig).buckets;
+      const { osmdbtCommandDurationSeconds } = (this.config.get('telemetry.metrics') as MetricsConfig).buckets;
       this.jobCounter = new PromCounter({
         name: 'osmdbt_job_count',
         help: 'The total number of osmdbt jobs started',
@@ -67,13 +55,7 @@ export class OsmdbtService {
         help: 'Duration of osmdbt job execution in seconds',
         labelNames: ['exitCode'] as const,
         buckets: osmdbtCommandDurationSeconds,
-      });
-
-      this.commandDurationHistogram = new Histogram({
-        name: 'osmdbt_command_duration_seconds',
-        help: 'Duration of individual osmdbt commands in seconds',
-        labelNames: ['executable', 'command', 'exitCode'] as const,
-        buckets: osmdbtJobDurationSeconds,
+        registers: [registry],
       });
     }
   }
@@ -84,10 +66,6 @@ export class OsmdbtService {
 
   private get osmdbtStateBackupPath(): string {
     return join(this.osmdbtConfig.changesDir, BACKUP_DIR_NAME, STATE_FILE);
-  }
-
-  private get globalOsmdbtArgs(): string[] {
-    return this.osmdbtConfig.verbose ? GLOBAL_OSMDBT_VERBOSE_ARGS : GLOBAL_OSMDBT_NON_VERBOSE_ARGS;
   }
 
   public async executeJob(): Promise<void> {
@@ -136,13 +114,9 @@ export class OsmdbtService {
 
     span?.setAttribute(JobAttributes.JOB_STATE_START, startState);
 
-    // await this.tracer.startActiveSpan(CommandSpanName.GET_LOG, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
-    //   await this.runCommand('osmdbt', OsmdbtCommand.GET_LOG, [...this.globalOsmdbtArgs, '-m', this.osmdbtConfig.getLogMaxChanges.toString()], span)
-    // );
+    await this.osmdbtExecutable.getLog();
 
-    await this.tracer.startActiveSpan(CommandSpanName.CREATE_DIFF, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
-      this.runCommand('osmdbt', OsmdbtCommand.CREATE_DIFF, this.globalOsmdbtArgs, span)
-    );
+    await this.osmdbtExecutable.createDiff();
 
     const endState = await this.getSequenceNumber();
 
@@ -210,48 +184,6 @@ export class OsmdbtService {
     await Promise.all(makeDirPromises);
   }
 
-  private async runCommand(executable: Executable, command: string, commandArgs: string[] = [], span?: Span): Promise<string> {
-    const executablePath = executable === 'osmdbt' ? join(OSMDBT_BIN_PATH, command) : executable;
-    const args = executable === 'osmdbt' ? commandArgs : [command, ...commandArgs];
-
-    this.logger.info({ msg: 'executing command', executable, command, args });
-
-    span?.setAttributes({
-      [ATTR_RPC_SYSTEM]: executable,
-      [ExecutableAttributes.EXECUTABLE_COMMAND]: command,
-      [ExecutableAttributes.EXECUTABLE_COMMAND_ARGS]: args.join(' '),
-    });
-    let exitCode: number = ExitCodes.SUCCESS;
-
-    let commandDurationSeconds = 0;
-    try {
-      const [stdout, duration] = await timerify(async () => {
-        const spawnedChild = execa(executablePath, args, { encoding: 'utf-8' });
-
-        const { exitCode: commandExitCode, stderr, stdout } = await spawnedChild;
-        exitCode = commandExitCode;
-
-        if (exitCode !== 0) {
-          throw new ErrorWithExitCode(stderr.length > 0 ? stderr : `osmdbt ${command} failed with exit code ${exitCode}`, ExitCodes.OSMDBT_ERROR);
-        }
-
-        handleSpanOnSuccess(span);
-        return stdout;
-      });
-      commandDurationSeconds = duration;
-      return stdout;
-    } catch (error) {
-      this.logger.error({ msg: 'failure occurred during command execution', executable: 'osmdbt', command, args });
-
-      handleSpanOnError(span, error);
-      exitCode = executable === 'osmdbt' ? ExitCodes.OSMDBT_ERROR : ExitCodes.OSMIUM_ERROR;
-      const message = error instanceof Error ? error.message : `${executable} errored`;
-      throw new ErrorWithExitCode(message, exitCode);
-    } finally {
-      this.commandDurationHistogram?.observe({ executable, command, exitCode }, commandDurationSeconds);
-    }
-  }
-
   private async getSequenceNumber(): Promise<string> {
     this.logger.debug({ msg: 'fetching sequence number from file', file: this.osmdbtStatePath });
 
@@ -309,9 +241,7 @@ export class OsmdbtService {
 
     try {
       await this.tracer.startActiveSpan(SpanName.MARK_LOGS, async (span) => this.markLogFilesForCatchup(span));
-      await this.tracer.startActiveSpan(CommandSpanName.CATCHUP, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
-        this.runCommand('osmdbt', OsmdbtCommand.CATCHUP, this.globalOsmdbtArgs, span)
-      );
+      await this.osmdbtExecutable.catchup();
       await this.tracer.startActiveSpan(SpanName.POST_CATCHUP, async (span) => this.postCatchupCleanup(span));
 
       handleSpanOnSuccess(span);
@@ -389,18 +319,10 @@ export class OsmdbtService {
   }
 
   private async collectInfo(sequenceNumber: string): Promise<Record<string, unknown>> {
-    const osmiumConfig = this.config.get('osmium') as OsmiumConfig;
-    const GLOBAL_OSMIUM_ARGS = osmiumConfig.verbose
-      ? ['--verbose', osmiumConfig.progress ? '--progress' : '--no-progress']
-      : [osmiumConfig.progress ? '--progress' : '--no-progress'];
     const [top, bottom, stateNumber] = getDiffDirPathComponents(sequenceNumber);
     const localdiffPath = join(this.osmdbtConfig.changesDir, top, bottom, `${stateNumber}.${DIFF_FILE_EXTENTION}`);
-
-    const collectedInfo = await this.tracer.startActiveSpan(CommandSpanName.FILE_INFO, { kind: SpanKind.CLIENT }, contextAPI.active(), async (span) =>
-      this.runCommand('osmium', 'fileinfo', [...GLOBAL_OSMIUM_ARGS, '--extended', '--json', localdiffPath], span)
-    );
-
-    return JSON.parse(collectedInfo) as Record<string, unknown>;
+    const info = await this.osmiumExecutable.fileInfo(localdiffPath);
+    return JSON.parse(info) as Record<string, unknown>;
   }
 
   private async pullStateFile(): Promise<void> {

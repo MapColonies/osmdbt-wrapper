@@ -8,7 +8,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
-import { Logger } from '@map-colonies/js-logger';
+import { type Logger } from '@map-colonies/js-logger';
 import { ErrorWithExitCode } from '../common/errors';
 import { ExitCodes, S3_NOT_FOUND_ERROR_NAME } from '../common/constants';
 import { evaluateContentType } from '../common/util';
