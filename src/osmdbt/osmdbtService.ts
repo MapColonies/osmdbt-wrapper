@@ -6,7 +6,7 @@ import { inject, injectable } from 'tsyringe';
 import { handleSpanOnError, handleSpanOnSuccess } from '@map-colonies/telemetry';
 import { Histogram, Counter as PromCounter, Registry as PromRegistry } from 'prom-client';
 import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
-import { attemptSafely, getDiffDirPathComponents, streamToString } from '@src/common/util';
+import { attemptSafely, extractSequenceNumber, getDiffDirPathComponents, streamToString } from '@src/common/util';
 import { BACKUP_DIR_NAME, DIFF_FILE_EXTENTION, ExitCodes, OSMDBT_DONE_LOG_PREFIX, SERVICES, STATE_FILE } from '@src/common/constants';
 import { ErrorWithExitCode } from '@src/common/errors';
 import { JobAttributes, SpanName } from '@src/common/tracing/job';
@@ -88,12 +88,10 @@ export class OsmdbtService {
         jobExitCode = error instanceof ErrorWithExitCode ? error.exitCode : ExitCodes.GENERAL_ERROR;
         throw error;
       } finally {
-        this.logger.info('on pre finally', rootJobSpan);
         jobTimer?.({ exitCode: jobExitCode.toString() });
         rootJobSpan.setAttributes({ [JobAttributes.JOB_EXITCODE]: jobExitCode });
         rootJobSpan.setStatus({ code: jobExitCode === (ExitCodes.SUCCESS || ExitCodes.TERMINATED) ? SpanStatusCode.OK : SpanStatusCode.ERROR });
         rootJobSpan.end();
-        this.logger.info('on post finally', rootJobSpan);
         this.isActiveJob = false;
       }
     });
@@ -159,12 +157,14 @@ export class OsmdbtService {
       }
     });
 
-    const metadata: Record<string, unknown> = {};
-    if (this.appConfig.shouldCollectInfo) {
-      metadata.info = await attemptSafely(async () => this.collectInfo(endState));
-    }
+    await this.tracer.startActiveSpan(SpanName.POST_CATCHUP, async (span) => this.postCatchupCleanup(span));
 
-    await attemptSafely(async () => this.mediator.updateAction({ status: ActionStatus.COMPLETED, metadata }));
+    const metadata: Record<string, unknown> = {};
+    await attemptSafely(async () => {
+      metadata.info = await this.collectInfo(endState);
+    });
+
+    await this.mediator.updateAction({ status: ActionStatus.COMPLETED, metadata });
 
     this.logger.info({ msg: 'job completed successfully, exiting gracefully', startState, endState });
   }
@@ -188,20 +188,19 @@ export class OsmdbtService {
     this.logger.debug({ msg: 'fetching sequence number from file', file: this.osmdbtStatePath });
 
     const stateFileContent = (await this.fsRepository.readFile(this.osmdbtStatePath, 'utf-8')) as string;
-    const matchResult = stateFileContent.match(/sequenceNumber=\d+/);
-    if (matchResult === null || matchResult.length === 0) {
-      this.logger.error({ msg: 'failed to fetch sequence number from file', file: this.osmdbtStatePath });
+
+    try {
+      return extractSequenceNumber(stateFileContent);
+    } catch (err) {
+      this.logger.error({ msg: 'failed to fetch sequence number from file', file: this.osmdbtStatePath, err });
 
       const error = new ErrorWithExitCode(
         `failed to fetch sequence number out of the state file, ${STATE_FILE} is invalid`,
         ExitCodes.INVALID_STATE_FILE_ERROR
       );
+
       throw error;
     }
-
-    const sequenceNumber = matchResult[0].split('=')[1]!;
-
-    return sequenceNumber;
   }
 
   private async uploadDiff(sequenceNumber: string, span?: Span): Promise<void> {
@@ -217,7 +216,7 @@ export class OsmdbtService {
       const localPath = join(this.osmdbtConfig.changesDir, filePath);
       const uploadContent = (await this.fsRepository.readFile(localPath)) as Buffer;
 
-      await this.s3Manager.uploadFile(filePath, uploadContent);
+      await this.s3Manager.putObject(filePath, uploadContent);
     });
 
     span?.setAttributes({ [S3Attributes.S3_UPLOAD_COUNT]: uploads.length, [S3Attributes.S3_UPLOAD_STATE]: sequenceNumber });
@@ -227,7 +226,7 @@ export class OsmdbtService {
 
       const endStateFileBuffer = (await this.fsRepository.readFile(this.osmdbtStatePath)) as Buffer;
 
-      await this.s3Manager.uploadFile(STATE_FILE, endStateFileBuffer);
+      await this.s3Manager.putObject(STATE_FILE, endStateFileBuffer);
       handleSpanOnSuccess(span);
     } catch (error) {
       await attemptSafely(async () => this.mediator.updateAction({ status: ActionStatus.FAILED, metadata: { error } }));
@@ -242,8 +241,6 @@ export class OsmdbtService {
     try {
       await this.tracer.startActiveSpan(SpanName.MARK_LOGS, async (span) => this.markLogFilesForCatchup(span));
       await this.osmdbtExecutable.catchup();
-      await this.tracer.startActiveSpan(SpanName.POST_CATCHUP, async (span) => this.postCatchupCleanup(span));
-
       handleSpanOnSuccess(span);
     } catch (error) {
       this.logger.error({
@@ -271,6 +268,7 @@ export class OsmdbtService {
 
       await Promise.all(unlinkFilesPromises);
     } catch (error) {
+      await attemptSafely(async () => this.mediator.updateAction({ status: ActionStatus.FAILED, metadata: { error } }));
       handleSpanOnError(span, error);
       throw error;
     }
@@ -309,7 +307,7 @@ export class OsmdbtService {
 
     try {
       const backupStateFileBuffer = (await this.fsRepository.readFile(this.osmdbtStateBackupPath)) as Buffer;
-      await this.s3Manager.uploadFile(STATE_FILE, backupStateFileBuffer);
+      await this.s3Manager.putObject(STATE_FILE, backupStateFileBuffer);
       handleSpanOnSuccess(span);
     } catch (error) {
       this.logger.fatal({ msg: 'failed to rollback', err: error });
@@ -326,7 +324,7 @@ export class OsmdbtService {
   }
 
   private async pullStateFile(): Promise<void> {
-    const stateFileStream = await this.s3Manager.getFile(STATE_FILE);
+    const stateFileStream = await this.s3Manager.getObject(STATE_FILE);
 
     const stateFileContent = await streamToString(stateFileStream);
     const writeFilesPromises = [this.osmdbtStatePath, this.osmdbtStateBackupPath].map(async (filePath) => {

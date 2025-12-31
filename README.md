@@ -1,11 +1,40 @@
 # osmdbt-wrapper
-a cronjob wrapper for [osmdbt](https://github.com/openstreetmap/osmdbt) used for creating and uploading replications from OSM database to S3
+A cronjob wrapper for [osmdbt](https://github.com/openstreetmap/osmdbt) used for creating and uploading replications from OSM database to S3
 
 The replication creation is determined by a `state.txt` file. to initialize the replication place the file in your S3 bucket, this file is the source of truth for the job and will be up for update with each job.
 
-if no changes were found on a job no replications would be uploaded and the state file will remain the same.
+If no changes were found on a job no replications would be uploaded and the state file will remain the same.
 
-Only one job can run at a time to prevent a race condition on the replication slot changes and for the replications to remain linear, Also to prevent state miss matches with `planet-dumper` dump creation a `lockfile` is put on the start of each job and is removed on job completion.
+Only one job can run at a time to prevent a race condition on the replication slot changes and for the replications to remain linear, Also to prevent state miss matches with `planet-dumper` dump creation the service requeires access from `arstotzka`.
+
+A single `osmdbt-wrapper` job can be simplified to the following flow:
+```mermaid
+flowchart TD
+    A[Start]
+    R[Rollback Needed]
+    X([Arstotzka: fail action])
+
+    A --> B([Arstotzka: reserve access])
+    B -- granted --> C([S3: pull state file])
+    C --> D([Osmdbt: get-log])
+    D --> E([Osmdbt: create-diff])
+    E --> F{changes found?}
+    F -- no -->G([Arstotzka: remove lock])
+    F -- yes -->H([Arstotzka: create action])
+    H --> I([Arstotzka: remove lock])
+    I --> J([S3: upload diff & next state])
+    J -- failure --> X
+    J -- success -->L([Fs: rename logs])
+    L -- success -->M([Osmdbt: catchup])
+    L -- failure -->R
+    M -- failure -->R
+    R --> Q([S3: upload prev state])
+    Q --> X
+    M -- success --> N([Fs: unlink logs])
+    N -- success --> O([Osmium: fileinfo])
+    N -- failure --> X
+    O --> P([Arstotzka: complete action])
+```
 
 ## Configuration
 

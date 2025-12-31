@@ -1,19 +1,22 @@
+/* eslint-disable @typescript-eslint/naming-convention */ // due to aws-sdk naming convention
 import { Readable } from 'stream';
-import { Registry } from 'prom-client';
 import jsLogger from '@map-colonies/js-logger';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { Registry } from 'prom-client';
 import { getConfig, initConfig } from '@src/common/config';
 import { S3Manager } from '@src/s3/s3Manager';
 import { createS3Repositry, S3Repository } from '@src/s3/s3Repository';
 import { ErrorWithExitCode } from '@src/common/errors';
 import { ExitCodes } from '@src/common/constants';
-import { S3Client } from '@aws-sdk/client-s3';
+import { streamToString } from '@src/common/util';
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-return
-jest.mock('@aws-sdk/client-s3', () => ({
+const MOCK_KEY = '/mock/key';
+const sendMock = jest.fn();
+
+jest.mock('@aws-sdk/client-s3', (): typeof import('@aws-sdk/client-s3') => ({
   ...jest.requireActual('@aws-sdk/client-s3'),
-
   S3Client: jest.fn().mockImplementation(() => ({
-    send: jest.fn(),
+    send: sendMock,
   })),
 }));
 
@@ -28,53 +31,66 @@ describe('s3Manager', () => {
     const logger = jsLogger({ enabled: false });
     mockedS3Client = new S3Client({}) as jest.Mocked<S3Client>;
     s3Repository = createS3Repositry(mockedS3Client, 'public-read', logger);
-    s3Manager = new S3Manager(s3Repository, getConfig(), logger);
+    s3Manager = new S3Manager(s3Repository, getConfig(), logger, new Registry());
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('getFile', () => {
-    it.only('should run successfully', async () => {
-      const stream = {
-        Body: new Readable({
-          read() {
-            this.push('mock-content');
-            this.push(null);
-          },
-        }) as NodeJS.ReadStream,
-      };
+  describe('getObject', () => {
+    it('should run successfully', async () => {
+      sendMock.mockResolvedValueOnce({
+        Body: Readable.from(['mock-content']),
+      });
 
-      mockedS3Client.send.mockResolvedValueOnce(stream as never);
+      const res = await s3Manager.getObject(MOCK_KEY);
 
-      await expect(s3Manager.getFile('/mock/path')).resolves.toBeDefined();
-
-      expect(mockedS3Client.send).toHaveBeenCalledTimes(1);
-      expect(s3Repository.getObjectWrapper).toHaveBeenCalledTimes(1);
-      expect(s3Repository.getObjectWrapper).toHaveBeenCalledWith(s3Manager['objectStorageConfig'].bucketName, '/mock/path');
+      expect(await streamToString(res)).toBe('mock-content');
+      expect(sendMock).toHaveBeenCalledTimes(1);
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ input: { Bucket: s3Manager.bucketName, Key: MOCK_KEY } }));
     });
 
-    // it('should fail becuase getObjectWrapper throws error', async () => {
-    //   const error = new Error('some error');
-    //   getObjectWrapper.mockRejectedValueOnce(error);
+    it('should throw if s3 client throws error', async () => {
+      const error = new Error('some error');
+      sendMock.mockRejectedValueOnce(error);
 
-    //   await expect(s3Manager.getFile('/mock/path')).rejects.toStrictEqual(new ErrorWithExitCode('s3 get file error', ExitCodes.S3_ERROR));
-    // });
+      await expect(s3Manager.getObject(MOCK_KEY)).rejects.toStrictEqual(new ErrorWithExitCode('s3 get object error', ExitCodes.S3_ERROR));
+
+      expect(sendMock).toHaveBeenCalledTimes(1);
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ input: { Bucket: s3Manager.bucketName, Key: MOCK_KEY } }));
+    });
   });
 
-  describe('uploadFile', () => {
-    // it('should run successfully', async () => {
-    //   putObjectWrapper.mockResolvedValueOnce(undefined);
-    //   await expect(s3Manager.uploadFile('test', Buffer.from('test'))).resolves.toBeUndefined();
-    //   expect(putObjectWrapper).toHaveBeenCalledTimes(1);
-    // });
-    // it('should fail becuase putObjectWrapper throws error', async () => {
-    //   const error = new Error('some error');
-    //   putObjectWrapper.mockRejectedValueOnce(error);
-    //   await expect(s3Manager.uploadFile('test', Buffer.from('test'))).rejects.toStrictEqual(
-    //     new ErrorWithExitCode('s3 put file error', ExitCodes.S3_ERROR)
-    //   );
-    // });
+  describe('putObject', () => {
+    it('should run successfully', async () => {
+      const data = Buffer.from('test');
+      sendMock.mockResolvedValueOnce(undefined);
+
+      await expect(s3Manager.putObject(MOCK_KEY, data)).resolves.not.toThrow();
+
+      expect(sendMock).toHaveBeenCalledTimes(1);
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({ ACL: 'public-read', Bucket: s3Manager.bucketName, Key: MOCK_KEY }) as PutObjectCommand['input'],
+        })
+      );
+    });
+
+    it('should fail becuase putObjectWrapper throws error', async () => {
+      const error = new Error('some error');
+      sendMock.mockRejectedValueOnce(error);
+
+      await expect(s3Manager.putObject(MOCK_KEY, Buffer.from('test'))).rejects.toStrictEqual(
+        new ErrorWithExitCode('s3 put object error', ExitCodes.S3_ERROR)
+      );
+
+      expect(sendMock).toHaveBeenCalledTimes(1);
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({ ACL: 'public-read', Bucket: s3Manager.bucketName, Key: MOCK_KEY }) as PutObjectCommand['input'],
+        })
+      );
+    });
   });
 });

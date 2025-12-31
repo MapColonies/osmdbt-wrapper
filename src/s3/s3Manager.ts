@@ -10,7 +10,7 @@ import { S3_REPOSITORY, type S3Repository } from './s3Repository';
 @injectable()
 export class S3Manager {
   private readonly objectStorageConfig: ObjectStorageConfig;
-  private readonly uploadCounter?: PromCounter;
+  private readonly actionCounter?: PromCounter;
   private readonly errorCounter?: PromCounter;
 
   public constructor(
@@ -22,44 +22,50 @@ export class S3Manager {
     this.objectStorageConfig = this.config.get('objectStorage') as ObjectStorageConfig;
 
     if (registry !== undefined) {
-      this.uploadCounter = new PromCounter({
-        name: 'osmdbt_files_count',
-        help: 'The total number of files uploaded to s3',
+      this.actionCounter = new PromCounter({
+        name: 'osmdbt_objects_count',
+        help: 'The total number of successful s3 object actions',
         registers: [registry],
+        labelNames: ['kind'] as const,
       });
       this.errorCounter = new PromCounter({
         name: 'osmdbt_s3_error_count',
         help: 'The total number of errors encountered while interacting with s3',
         registers: [registry],
+        labelNames: ['kind'] as const,
       });
     }
   }
 
-  public async getFile(fileName: string): Promise<NodeJS.ReadStream> {
-    this.logger.debug({ msg: 'getting file from s3', bucketName: this.objectStorageConfig.bucketName, fileName });
-    let fileStream: NodeJS.ReadStream;
+  public get bucketName(): string {
+    return this.objectStorageConfig.bucketName;
+  }
+
+  public async getObject(objectName: string): Promise<NodeJS.ReadStream> {
+    this.logger.debug({ msg: 'getting object from s3', bucketName: this.bucketName, objectName });
+    let objectStream: NodeJS.ReadStream;
 
     try {
-      console.log(this.objectStorageConfig.bucketName, fileName);
-      fileStream = await this.s3Repository.getObjectWrapper(this.objectStorageConfig.bucketName, fileName);
-      return fileStream;
+      objectStream = await this.s3Repository.getObjectWrapper(this.bucketName, objectName);
+      this.actionCounter?.inc({ kind: 'get' });
+      return objectStream;
     } catch (error) {
-      this.errorCounter?.inc();
-      this.logger.error({ err: error, msg: 'failed to get file from s3', fileName });
-      throw new ErrorWithExitCode('s3 get file error', ExitCodes.S3_ERROR);
+      this.errorCounter?.inc({ kind: 'get' });
+      this.logger.error({ err: error, msg: 'failed to get object from s3', bucketName: this.bucketName, objectName });
+      throw new ErrorWithExitCode('s3 get object error', ExitCodes.S3_ERROR);
     }
   }
 
-  public async uploadFile(fileName: string, buffer: Buffer): Promise<void> {
-    this.logger.debug({ msg: 'putting file to s3', bucketName: this.objectStorageConfig.bucketName, fileName });
+  public async putObject(objectName: string, buffer: Buffer): Promise<void> {
+    this.logger.debug({ msg: 'putting object to s3', bucketName: this.bucketName, objectName });
 
     try {
-      await this.s3Repository.putObjectWrapper(this.objectStorageConfig.bucketName, fileName, buffer);
-      this.uploadCounter?.inc();
+      await this.s3Repository.putObjectWrapper(this.bucketName, objectName, buffer);
+      this.actionCounter?.inc({ kind: 'put' });
     } catch (error) {
-      this.errorCounter?.inc();
-      this.logger.error({ err: error, msg: 'failed to put file to s3', fileName });
-      throw new ErrorWithExitCode('s3 put file error', ExitCodes.S3_ERROR);
+      this.errorCounter?.inc({ kind: 'put' });
+      this.logger.error({ err: error, msg: 'failed to put object to s3', bucketName: this.bucketName, objectName });
+      throw new ErrorWithExitCode('s3 put object error', ExitCodes.S3_ERROR);
     }
   }
 }
