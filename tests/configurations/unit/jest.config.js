@@ -10,7 +10,15 @@ module.exports = {
   testMatch: ['<rootDir>/tests/unit/**/*.spec.ts'],
   coverageReporters: ['text', 'html'],
   collectCoverage: true,
-  collectCoverageFrom: ['<rootDir>/src/**/*.ts', '!*/node_modules/', '!/vendor/**', '!*/common/**', '!<rootDir>/src/*'],
+  collectCoverageFrom: [
+    '<rootDir>/src/**/*.ts',
+    '!*/node_modules/',
+    '!/vendor/**',
+    '!*/common/**',
+    '!<rootDir>/src/*',
+    '!<rootDir>/src/**/osmdbt/index.ts',
+    '!<rootDir>/src/**/s3/index.ts',
+  ],
   coverageDirectory: '<rootDir>/coverage',
   reporters: [
     'default',

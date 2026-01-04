@@ -22,16 +22,16 @@ export class OsmiumExecutable extends CommonExecutable {
     this.osmiumConfig = config.get('osmium') as OsmiumConfig;
   }
 
-  public getExecutableName(): Executable {
-    return 'osmium';
-  }
-
   public async fileInfo(diffPath: string): Promise<string> {
     const context = { executable: this.executableName, command: OsmiumCommand.FILE_INFO, args: ['--extended', '--json', diffPath] };
 
     const info = await this.runCommand(context);
 
     return info;
+  }
+
+  protected getExecutableName(): Executable {
+    return 'osmium';
   }
 
   protected getExecutablePath(context: CommandContext): string {

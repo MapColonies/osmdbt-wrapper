@@ -22,10 +22,6 @@ export class OsmdbtExecutable extends CommonExecutable {
     this.osmdbtConfig = config.get('osmdbt') as OsmdbtConfig;
   }
 
-  public getExecutableName(): Executable {
-    return 'osmdbt';
-  }
-
   public async getLog(): Promise<void> {
     const context = { executable: this.executableName, command: OsmdbtCommand.GET_LOG, args: ['-m', this.osmdbtConfig.getLogMaxChanges.toString()] };
     await this.runCommand(context);
@@ -39,6 +35,10 @@ export class OsmdbtExecutable extends CommonExecutable {
   public async catchup(): Promise<void> {
     const context = { executable: this.executableName, command: OsmdbtCommand.CATCHUP, args: [] };
     await this.runCommand(context);
+  }
+
+  protected getExecutableName(): Executable {
+    return 'osmdbt';
   }
 
   protected getExecutablePath(context: CommandContext): string {

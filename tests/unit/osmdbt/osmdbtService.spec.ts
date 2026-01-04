@@ -1,754 +1,1031 @@
-import * as fsPromises from 'fs/promises';
 import { Readable } from 'stream';
-import execa from 'execa';
-import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
+import { ActionStatus } from '@map-colonies/arstotzka-common';
 import jsLogger from '@map-colonies/js-logger';
 import { trace } from '@opentelemetry/api';
-import { getConfig, initConfig } from '@src/common/config';
-import { ExitCodes, SERVICE_NAME } from '@src/common/constants';
-import { tracingFactory } from '@src/common/tracing';
+import { Registry } from 'prom-client';
+import { ConfigType, getConfig, initConfig } from '@src/common/config';
+import { BACKUP_DIR_NAME, ExitCodes, SERVICE_NAME, STATE_FILE } from '@src/common/constants';
 import { OsmdbtService } from '@src/osmdbt/osmdbtService';
-import { S3Manager } from '@src/s3/s3Manager';
 import { ErrorWithExitCode } from '@src/common/errors';
-import { FsRepository } from '@src/fs/fsRepository';
-import { Executable } from '@src/executables';
-import { OsmiumExecutable } from '@src/executables/osmium';
-import { OsmdbtExecutable } from '@src/executables/osmdbt';
+import {
+  fsRepositoryMock,
+  fsRepositoryMockFn,
+  osmdbtExecutableMock,
+  osmdbtExecutableMockFn,
+  osmiumExecutableMockFn,
+  osmiumExecutableMock,
+  s3ManagerMock,
+  s3ManagerMockFn,
+  mediatorMock,
+  mediatorMockFn,
+} from '@tests/mocks';
 
-jest.mock('fs/promises');
-jest.mock('execa');
+const PREV_STATE_FILE_CONTENT = 'sequenceNumber=666';
+const NEXT_STATE_FILE_CONTENT = 'sequenceNumber=667';
 
 describe('OsmdbtService', () => {
-  const getFile = jest.fn();
-  const uploadFile = jest.fn();
-  const reserveAccess = jest.fn();
-  const removeLock = jest.fn();
-  const updateAction = jest.fn();
-  const createAction = jest.fn();
-
-  const readFile = jest.fn();
-  const mkdir = jest.fn();
-  const appendFile = jest.fn();
-  const readdir = jest.fn();
-  const rename = jest.fn();
-  const unlink = jest.fn();
-
   let osmdbtService: OsmdbtService;
-
-  const s3Manager = {
-    getFile,
-    uploadFile,
-  } as unknown as S3Manager;
-
-  const fsRepository = {
-    readFile,
-    mkdir,
-    appendFile,
-    readdir,
-    rename,
-    unlink,
-  } as unknown as FsRepository;
-
-  const mediator = {
-    reserveAccess,
-    removeLock,
-    updateAction,
-    createAction,
-  } as unknown as StatefulMediator;
+  let config: ConfigType;
 
   beforeAll(async () => {
     await initConfig(true);
 
-    const config = getConfig();
-
-    const tracingConfig = config.get('telemetry.tracing');
-    const sharedConfig = config.get('telemetry.shared');
-
-    const tracing = tracingFactory({ ...tracingConfig, ...sharedConfig });
-
-    tracing.start();
-  });
-
-  beforeEach(() => {
-    jest.clearAllMocks();
+    config = getConfig();
+    config.get('osmdbt');
 
     const logger = jsLogger({ enabled: false });
-    const config = getConfig();
 
     osmdbtService = new OsmdbtService(
       logger,
       trace.getTracer(`${SERVICE_NAME}_osmdbtService_unit_test`),
       config,
-      mediator,
-      s3Manager,
-      fsRepository,
-      new OsmdbtExecutable(logger, config),
-      new OsmiumExecutable(logger, config)
+      mediatorMock,
+      s3ManagerMock,
+      fsRepositoryMock,
+      osmdbtExecutableMock,
+      osmiumExecutableMock,
+      new Registry()
     );
   });
 
-  describe('isJobActive', () => {
-    // it('should return false by default', () => {
-    //   expect(OsmdbtService.isJobActive()).toBe(false);
-    // });
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
 
-    it.skip('should return true when a job is active', async () => {
-      reserveAccess.mockResolvedValue(undefined);
-      getFile.mockResolvedValue(undefined);
-      uploadFile.mockResolvedValue(undefined);
-      updateAction.mockResolvedValue(undefined);
-      createAction.mockResolvedValue(undefined);
-      removeLock.mockResolvedValue(undefined);
-      const tracer = osmdbtService['tracer'];
-      const mockSpan = {
-        setAttribute: jest.fn(),
-        setAttributes: jest.fn(),
-        spanContext: jest.fn(),
-        addEvent: jest.fn(),
-        addLink: jest.fn(),
-        addLinks: jest.fn(),
-        end: jest.fn(),
-        isRecording: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        updateName: jest.fn(),
-      };
-      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
-      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
-      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
-      jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService).mockImplementation(async () => {});
-      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockImplementation(async () => {});
-      jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockImplementation(async () => {});
-      jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockImplementation(async () => {});
-      jest.spyOn(osmdbtService, 'collectInfo' as keyof OsmdbtService).mockImplementation(async () => {});
-      jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService).mockImplementation(async () => {});
+  describe('executeJob', () => {
+    it('should not start a job if a job is already active', async () => {
+      osmdbtService['isActiveJob'] = true;
+
       await expect(osmdbtService.executeJob()).resolves.not.toThrow();
-      // expect(OsmdbtService.isJobActive()).toBe(true);
-    });
-  });
 
-  describe('startJob', () => {
-    // it('should not start a job if one is already active', async () => {
-    //   OsmdbtService['isActiveJob'] = true;
-    //   await expect(osmdbtService.startJob()).resolves.not.toThrow();
-    //   expect(reserveAccess).not.toHaveBeenCalled();
-    //   OsmdbtService['isActiveJob'] = false;
-    // });
-
-    it('should handle errors and call processExitSafely with error code', async () => {
-      reserveAccess.mockRejectedValue(new Error('fail'));
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
-      const prepareEnvironmentSpy = jest.spyOn(osmdbtService, 'prepareEnvironment' as keyof OsmdbtService);
-
-      await expect(osmdbtService.executeJob()).rejects.toThrow();
-
-      expect(processExitSafelySpy).toHaveBeenCalledTimes(1);
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.GENERAL_ERROR);
-      expect(prepareEnvironmentSpy).not.toHaveBeenCalled();
+      expect(mediatorMockFn.reserveAccessMock).not.toHaveBeenCalled();
+      osmdbtService['isActiveJob'] = false;
     });
 
-    it.skip('should complete successfully and call mediator methods', async () => {
-      reserveAccess.mockResolvedValue(undefined);
-      getFile.mockResolvedValue(undefined);
-      uploadFile.mockResolvedValue(undefined);
-      updateAction.mockResolvedValue(undefined);
-      createAction.mockResolvedValue(undefined);
-      const tracer = osmdbtService['tracer'];
-      const mockSpan = {
-        setAttribute: jest.fn(),
-        setAttributes: jest.fn(),
-        spanContext: jest.fn(),
-        addEvent: jest.fn(),
-        addLink: jest.fn(),
-        addLinks: jest.fn(),
-        end: jest.fn(),
-        isRecording: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        updateName: jest.fn(),
-      };
-      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
-      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
-      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
-      jest
-        .spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService)
-        .mockImplementationOnce(async () => {})
-        .mockImplementationOnce(async () => {});
-      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockImplementation(async () => {});
-      jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockImplementation(async () => {});
-      jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockImplementation(async () => {});
-      jest.spyOn(osmdbtService, 'collectInfo' as keyof OsmdbtService).mockImplementation(async () => {});
-      jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService).mockImplementation(async () => {});
-      await expect(osmdbtService.executeJob()).resolves.not.toThrow();
-      expect(reserveAccess).toHaveBeenCalled();
-      // expect(getFile).toHaveBeenCalled();
-    });
-  });
-
-  describe('getSequenceNumber', () => {
-    it('should return the sequence number if present', async () => {
-      readFile.mockResolvedValue('sequenceNumber=123');
-      const result = await osmdbtService['getSequenceNumber']();
-      expect(result).toBe('123');
-    });
-
-    it('should throw if sequence number is missing', async () => {
-      readFile.mockResolvedValue('no sequence');
-      await expect(osmdbtService['getSequenceNumber']()).rejects.toThrow(
-        new ErrorWithExitCode('failed to fetch sequence number out of the state file, state.txt is invalid', ExitCodes.INVALID_STATE_FILE_ERROR)
-      );
-    });
-
-    it('should throw if sequence number is not a string', async () => {
-      readFile.mockResolvedValue('sequenceNumber=');
-      await expect(osmdbtService['getSequenceNumber']()).rejects.toThrow(
-        new ErrorWithExitCode('failed to fetch sequence number out of the state file, state.txt is invalid', ExitCodes.INVALID_STATE_FILE_ERROR)
-      );
-    });
-  });
-
-  describe('processExitSafely', () => {
-    it('should set isActiveJob to false and end span', () => {
-      const endMock = jest.fn();
-      interface MockRootJobSpan {
-        setAttributes: jest.Mock;
-        setStatus: jest.Mock;
-        end: jest.Mock;
-      }
-      (osmdbtService as unknown as { rootJobSpan: MockRootJobSpan }).rootJobSpan = {
-        setAttributes: jest.fn(),
-        setStatus: jest.fn(),
-        end: endMock,
-      };
-      (OsmdbtService as unknown as { isActiveJob: boolean }).isActiveJob = true;
-      (osmdbtService as unknown as { processExitSafely: (code: number) => void }).processExitSafely(0);
-      // expect(OsmdbtService.isJobActive()).toBe(false);
-      expect(endMock).toHaveBeenCalled();
-    });
-  });
-
-  describe('uploadDiff', () => {
-    interface UploadDiff {
-      uploadDiff: (sequenceNumber: string) => Promise<string>;
-    }
-
-    it('should run uploadDiff successfully', async () => {
-      const serviceWithConfig = osmdbtService as unknown as { config: { get: (key: string) => unknown } };
-      const originalGet = serviceWithConfig.config.get.bind(serviceWithConfig.config);
-
-      jest.spyOn(serviceWithConfig.config, 'get').mockImplementation((key: string) => {
-        if (key === 'telemetry.tracing') {
-          return { isEnabled: true };
-        }
-        return originalGet(key);
-      });
-
-      await expect((osmdbtService as unknown as UploadDiff).uploadDiff('123')).resolves.toBeUndefined();
-    });
-
-    it('should handle error in file upload', async () => {
-      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
-      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
-      (readFile as jest.MockedFunction<typeof readFile>).mockResolvedValue('sequenceNumber=123');
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1').mockResolvedValueOnce('2');
-      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue(undefined);
-
-      (osmdbtService as unknown as { s3Manager: S3Manager }).s3Manager.uploadFile = jest
-        .fn()
-        .mockRejectedValue(new ErrorWithExitCode('s3 error', ExitCodes.S3_ERROR));
-
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
-
-      await expect(osmdbtService.executeJob()).rejects.toThrow();
-
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.S3_ERROR);
-    });
-  });
-
-  describe('pullStateFile', () => {
-    interface PullStateFile {
-      pullStateFile: () => Promise<(typeof ExitCodes)[keyof typeof ExitCodes]>;
-    }
-
-    const createStateFileReadStream = () => Readable.from([Buffer.from('sequenceNumber=123', 'utf-8')]) as NodeJS.ReadStream;
-
-    it('should run pullStateFile successfully', async () => {
-      (osmdbtService as unknown as { s3Manager: S3Manager }).s3Manager.getFile = jest.fn().mockResolvedValueOnce(createStateFileReadStream());
-
-      (osmdbtService as unknown as { fsRepository: FsRepository }).fsRepository.writeFile = jest.fn().mockRejectedValue(undefined);
-
-      await expect((osmdbtService as unknown as PullStateFile).pullStateFile()).resolves.toBe(ExitCodes.SUCCESS);
-
-      (osmdbtService as unknown as { fsRepository: FsRepository }).fsRepository.writeFile = jest.fn().mockReset();
-    });
-
-    it('should handle error in file download', async () => {
-      (osmdbtService as unknown as { s3Manager: S3Manager }).s3Manager.getFile = jest.fn().mockRejectedValueOnce('fail getFile');
-
-      await expect((osmdbtService as unknown as PullStateFile).pullStateFile()).resolves.toBe(ExitCodes.S3_ERROR);
-    });
-
-    it('should handle error in file FS save', async () => {
-      (osmdbtService as unknown as { s3Manager: S3Manager }).s3Manager.getFile = jest.fn().mockResolvedValueOnce(createStateFileReadStream());
-
-      (osmdbtService as unknown as { fsRepository: FsRepository }).fsRepository.writeFile = jest.fn().mockRejectedValueOnce('fail gwriteFile');
-
-      await expect((osmdbtService as unknown as PullStateFile).pullStateFile()).resolves.toBe(ExitCodes.FS_ERROR);
-    });
-  });
-
-  describe('commitChanges', () => {
-    it('should handle error in markLogFilesForCatchup', async () => {
-      jest
-        .spyOn(osmdbtService as unknown as { markLogFilesForCatchup: () => Promise<void> }, 'markLogFilesForCatchup')
-        .mockRejectedValue(new Error('fail'));
-
-      await expect((osmdbtService as unknown as { commitChanges: () => Promise<void> }).commitChanges()).rejects.toThrow('fail');
-    });
-    it('should handle error in runCommand', async () => {
-      jest.spyOn(osmdbtService as unknown as { markLogFilesForCatchup: () => Promise<void> }, 'markLogFilesForCatchup').mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService as unknown as { runCommand: () => Promise<void> }, 'runCommand').mockRejectedValue(new Error('fail'));
-      await expect((osmdbtService as unknown as { commitChanges: () => Promise<void> }).commitChanges()).rejects.toThrow('fail');
-    });
-    it('should handle error in postCatchupCleanup', async () => {
-      jest.spyOn(osmdbtService as unknown as { markLogFilesForCatchup: () => Promise<void> }, 'markLogFilesForCatchup').mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService as unknown as { runCommand: () => Promise<void> }, 'runCommand').mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService as unknown as { postCatchupCleanup: () => Promise<void> }, 'postCatchupCleanup').mockRejectedValue(new Error('fail'));
-      await expect((osmdbtService as unknown as { commitChanges: () => Promise<void> }).commitChanges()).rejects.toThrow('fail');
-    });
-  });
-
-  describe('startJob edge cases', () => {
-    it('should handle error in prepareEnvironment', async () => {
-      const error = new Error('fail prepareEnvironment');
-      reserveAccess.mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'prepareEnvironment' as keyof OsmdbtService).mockRejectedValue(error);
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
+    it('should throw if could not reserve access', async () => {
+      const error = new Error('access error');
+      mediatorMockFn.reserveAccessMock.mockRejectedValueOnce(error);
 
       await expect(osmdbtService.executeJob()).rejects.toThrow(error);
 
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.GENERAL_ERROR);
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
     });
 
-    it('should handle error in s3 getFile', async () => {
-      const error = new ErrorWithExitCode('s3 error', ExitCodes.S3_ERROR);
-      reserveAccess.mockResolvedValue(undefined);
-      s3Manager.getFile = jest.fn().mockRejectedValue(error);
-
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
+    it('should throw if could not mkdir any environment', async () => {
+      const error = new Error('fs error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.mkdirMock.mockRejectedValueOnce(error);
 
       await expect(osmdbtService.executeJob()).rejects.toThrow(error);
 
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.S3_ERROR);
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.changesDir);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.runDir);
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
     });
 
-    it('should handle error in runCommand', async () => {
-      reserveAccess.mockResolvedValue(undefined);
-      const tracer = osmdbtService['tracer'];
-      const mockSpan = {
-        setAttribute: jest.fn(),
-        setAttributes: jest.fn(),
-        spanContext: jest.fn(),
-        addEvent: jest.fn(),
-        addLink: jest.fn(),
-        addLinks: jest.fn(),
-        end: jest.fn(),
-        isRecording: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        updateName: jest.fn(),
-      };
-      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
-      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
-      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
-      jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService).mockRejectedValue(new Error('fail getSequenceNumber'));
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
+    it('should throw if could not mkdir the whole environment', async () => {
+      const error = new Error('fs error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.mkdirMock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined).mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.changesDir);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.runDir);
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if could not pull state file from s3', async () => {
+      const error = new Error('s3 error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if could not save pulled state file on both workdir and backup', async () => {
+      const error = new Error('fs error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/${STATE_FILE}`, PREV_STATE_FILE_CONTENT);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledWith(
+        `${config.get('osmdbt')?.changesDir}/${BACKUP_DIR_NAME}/${STATE_FILE}`,
+        PREV_STATE_FILE_CONTENT
+      );
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if could not save pulled state file on either workdir and backup', async () => {
+      const error = new Error('fs error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined).mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/${STATE_FILE}`, PREV_STATE_FILE_CONTENT);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledWith(
+        `${config.get('osmdbt')?.changesDir}/${BACKUP_DIR_NAME}/${STATE_FILE}`,
+        PREV_STATE_FILE_CONTENT
+      );
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if failed getting prev sequence number due to readFile error', async () => {
+      const error = new Error('fs error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.readFileMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/${STATE_FILE}`, 'utf-8');
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if failed getting prev sequence number due to invalid content', async () => {
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce('invalid');
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(
+        new ErrorWithExitCode(`failed to fetch sequence number out of the state file, ${STATE_FILE} is invalid`, ExitCodes.INVALID_STATE_FILE_ERROR)
+      );
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/${STATE_FILE}`, 'utf-8');
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if osmdbt:get-log failed', async () => {
+      const error = new Error('osmdbt get-log error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if osmdbt:create-diff failed', async () => {
+      const error = new Error('osmdbt create-diff error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if failed getting next sequence number due to readFile error', async () => {
+      const error = new Error('fs error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(2);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenNthCalledWith(1, `${config.get('osmdbt')?.changesDir}/${STATE_FILE}`, 'utf-8');
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenNthCalledWith(2, `${config.get('osmdbt')?.changesDir}/${STATE_FILE}`, 'utf-8');
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if failed getting next sequence number due to invalid content error', async () => {
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce('invalid');
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(
+        new ErrorWithExitCode(`failed to fetch sequence number out of the state file, ${STATE_FILE} is invalid`, ExitCodes.INVALID_STATE_FILE_ERROR)
+      );
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(2);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should resolve with no errors if prev state is equal to next state', async () => {
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      mediatorMockFn.removeLockMock.mockResolvedValueOnce(undefined);
+
       await expect(osmdbtService.executeJob()).resolves.not.toThrow();
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.GENERAL_ERROR);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(2);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
     });
 
-    it('should handle error in uploadDiff', async () => {
-      reserveAccess.mockResolvedValue(undefined);
-      const tracer = osmdbtService['tracer'];
-      const mockSpan = {
-        setAttribute: jest.fn(),
-        setAttributes: jest.fn(),
-        spanContext: jest.fn(),
-        addEvent: jest.fn(),
-        addLink: jest.fn(),
-        addLinks: jest.fn(),
-        end: jest.fn(),
-        isRecording: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        updateName: jest.fn(),
-      };
+    it('should resolve with no errors if prev state is equal to next state and remove lock throws', async () => {
+      const error = new Error('remove lock error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      mediatorMockFn.removeLockMock.mockRejectedValueOnce(error);
 
-      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
-      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
-      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
-      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockRejectedValue(new Error('fail uploadDiff'));
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
       await expect(osmdbtService.executeJob()).resolves.not.toThrow();
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.S3_ERROR);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(2);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
     });
 
-    it('should handle error in commitChanges failure', async () => {
-      (readFile as jest.MockedFunction<typeof readFile>).mockResolvedValueOnce(Buffer.from('sequenceNumber=2'));
+    it('should throw if creating an action throws an error', async () => {
+      const error = new Error('create action error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockRejectedValueOnce(error);
 
-      reserveAccess.mockResolvedValue(undefined);
-      const tracer = osmdbtService['tracer'];
-      const mockSpan = {
-        setAttribute: jest.fn(),
-        setAttributes: jest.fn(),
-        spanContext: jest.fn(),
-        addEvent: jest.fn(),
-        addLink: jest.fn(),
-        addLinks: jest.fn(),
-        end: jest.fn(),
-        isRecording: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        updateName: jest.fn(),
-      };
-      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
-      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
-      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
-      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockRejectedValue({ error: new Error('fail commit') });
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(2);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should not throw an error even if removing the lock after action creation throws', async () => {
+      const error = new Error('remove lock error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT).mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      mediatorMockFn.removeLockMock.mockRejectedValueOnce(error);
+      fsRepositoryMockFn.readdirMock.mockReturnValue([]);
+
+      await expect(osmdbtService.executeJob()).resolves.not.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(5);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.COMPLETED, metadata: {} });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if upload diff throws due to readfile', async () => {
+      const error = new Error('readfile error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockRejectedValueOnce(error);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(4);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if upload diff throws due to s3 put object', async () => {
+      const error = new Error('put object error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValue(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.putObjectMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(4);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(2);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledWith('000/000/667.state.txt', NEXT_STATE_FILE_CONTENT);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledWith('000/000/667.osc.gz', NEXT_STATE_FILE_CONTENT);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if upload diff throws due to s3 put object even if update action fails', async () => {
+      const error = new Error('put object error');
+      const updateActionError = new Error('update action error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValue(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.putObjectMock.mockRejectedValueOnce(error);
+      mediatorMockFn.updateActionMock.mockRejectedValueOnce(updateActionError);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(4);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(2);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledWith('000/000/667.state.txt', NEXT_STATE_FILE_CONTENT);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledWith('000/000/667.osc.gz', NEXT_STATE_FILE_CONTENT);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if upload diff throws due to state s3 put object', async () => {
+      const error = new Error('put object error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValue(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.putObjectMock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined).mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(5);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledWith('000/000/667.state.txt', NEXT_STATE_FILE_CONTENT);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledWith('000/000/667.osc.gz', NEXT_STATE_FILE_CONTENT);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledWith('state.txt', NEXT_STATE_FILE_CONTENT);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should rollback and throw an error if marking logs throws due to readdir error', async () => {
+      const error = new Error('readdir error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValue(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(6);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(4);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should rollback and throw an error if marking logs throws due to rename error', async () => {
+      const error = new Error('rename error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValue(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValue(['/mock.done', '/mock.test']);
+      fsRepositoryMockFn.renameMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(6);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(4);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(fsRepositoryMockFn.renameMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.renameMock).toHaveBeenCalledWith('/tmp/log/mock.done', '/tmp/log/mock');
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should rollback and throw an error if osmdbt catchup throws', async () => {
+      const error = new Error('catchup error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValue(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      osmdbtExecutableMockFn.catchupMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(6);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(4);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should rollback and throw an error if osmdbt catchup throws even if update action fails', async () => {
+      const error = new Error('catchup error');
+      const updateActionError = new Error('update action error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValue(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      osmdbtExecutableMockFn.catchupMock.mockRejectedValueOnce(error);
+      mediatorMockFn.updateActionMock.mockRejectedValueOnce(updateActionError);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(6);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(4);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if rollback throws due to readfile error', async () => {
+      const error = new Error('readfile error');
+      const catchupError = new Error('catchup error');
+      const expectedError = new ErrorWithExitCode('rollback error', ExitCodes.FS_ERROR);
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(PREV_STATE_FILE_CONTENT)
+        .mockRejectedValueOnce(error);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      osmdbtExecutableMockFn.catchupMock.mockRejectedValueOnce(catchupError);
+
+      await expect(osmdbtService.executeJob()).rejects.toStrictEqual(expectedError);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(6);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error: expectedError } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if rollback throws due to put object error', async () => {
+      const error = new Error('put object error');
+      const catchupError = new Error('catchup error');
+      const expectedError = new ErrorWithExitCode('rollback error', ExitCodes.FS_ERROR);
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      osmdbtExecutableMockFn.catchupMock.mockRejectedValueOnce(catchupError);
+      s3ManagerMockFn.putObjectMock
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toStrictEqual(expectedError);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(6);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(4);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error: expectedError } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if rollback throws due to put object error even if update action fails', async () => {
+      const error = new Error('put object error');
+      const catchupError = new Error('catchup error');
+      const expectedError = new ErrorWithExitCode('rollback error', ExitCodes.FS_ERROR);
+      const updateActionError = new Error('update action error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT)
+        .mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      osmdbtExecutableMockFn.catchupMock.mockRejectedValueOnce(catchupError);
+      s3ManagerMockFn.putObjectMock
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(error);
+      mediatorMockFn.updateActionMock.mockRejectedValueOnce(updateActionError);
+
+      await expect(osmdbtService.executeJob()).rejects.toStrictEqual(expectedError);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(6);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(4);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error: expectedError } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if post catchup throws due to readdir error', async () => {
+      const error = new Error('readdir error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValueOnce([]).mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(5);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if post catchup throws due to unlink error', async () => {
+      const error = new Error('unlink error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValueOnce([]).mockResolvedValueOnce(['/mock']);
+      fsRepositoryMockFn.unlinkMock.mockRejectedValueOnce(error);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(5);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledWith('/tmp/log/mock');
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should throw if post catchup throws even if update action fails', async () => {
+      const error = new Error('unlink error');
+      const updateActionError = new Error('update action error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValueOnce([]).mockResolvedValueOnce(['/mock']);
+      fsRepositoryMockFn.unlinkMock.mockRejectedValueOnce(error);
+      mediatorMockFn.updateActionMock.mockRejectedValueOnce(updateActionError);
+
+      await expect(osmdbtService.executeJob()).rejects.toThrow(error);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(5);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledWith('/tmp/log/mock');
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
+    });
+
+    it('should resolve without errors even if osmium fileInfo fails', async () => {
+      const error = new Error('fileInfo error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      osmiumExecutableMockFn.fileInfoMock.mockRejectedValueOnce(error);
+
       await expect(osmdbtService.executeJob()).resolves.not.toThrow();
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.GENERAL_ERROR);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(5);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledTimes(1);
+      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledWith('/tmp/000/000/667.osc.gz');
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.COMPLETED, metadata: {} });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
     });
 
-    it('should handle error in commitChanges and rollback failure', async () => {
-      (readFile as jest.MockedFunction<typeof readFile>).mockResolvedValueOnce(Buffer.from('sequenceNumber=2'));
+    it('should resolve without errors and attribute action with fileInfo output', async () => {
+      const expectedMetadata = { mock: true, key: 'value' };
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      osmiumExecutableMockFn.fileInfoMock.mockResolvedValueOnce(JSON.stringify(expectedMetadata));
 
-      reserveAccess.mockResolvedValue(undefined);
-      const tracer = osmdbtService['tracer'];
-      const mockSpan = {
-        setAttribute: jest.fn(),
-        setAttributes: jest.fn(),
-        spanContext: jest.fn(),
-        addEvent: jest.fn(),
-        addLink: jest.fn(),
-        addLinks: jest.fn(),
-        end: jest.fn(),
-        isRecording: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        updateName: jest.fn(),
-      };
-
-      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
-      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
-      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
-      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockRejectedValue({ error: new Error('fail commit') });
-      jest.spyOn(osmdbtService, 'rollback' as keyof OsmdbtService).mockRejectedValue({ error: new Error('fail rollback') });
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
       await expect(osmdbtService.executeJob()).resolves.not.toThrow();
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.ROLLBACK_FAILURE_ERROR);
+
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(5);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledTimes(1);
+      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledWith('/tmp/000/000/667.osc.gz');
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.COMPLETED, metadata: { info: expectedMetadata } });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
     });
 
-    it('should handle error in collectInfo', async () => {
-      reserveAccess.mockResolvedValue(undefined);
-      const tracer = osmdbtService['tracer'];
-      const mockSpan = {
-        setAttribute: jest.fn(),
-        setAttributes: jest.fn(),
-        spanContext: jest.fn(),
-        addEvent: jest.fn(),
-        addLink: jest.fn(),
-        addLinks: jest.fn(),
-        end: jest.fn(),
-        isRecording: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        updateName: jest.fn(),
-      };
+    it('should throw if after successful job update action throws', async () => {
+      const updateActionError = new Error('update action error');
+      mediatorMockFn.reserveAccessMock.mockResolvedValueOnce(undefined);
+      s3ManagerMockFn.getObjectMock.mockResolvedValueOnce(Readable.from([PREV_STATE_FILE_CONTENT]));
+      fsRepositoryMockFn.writeFileMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(PREV_STATE_FILE_CONTENT);
+      osmdbtExecutableMockFn.getLogMock.mockResolvedValueOnce(undefined);
+      osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
+      mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
+      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      mediatorMockFn.updateActionMock.mockRejectedValueOnce(updateActionError);
 
-      (osmdbtService as unknown as { appConfig: { [x: string]: unknown; shouldCollectInfo: boolean } }).appConfig = {
-        ...osmdbtService['appConfig'],
-        shouldCollectInfo: true,
-      };
-      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
-      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
-      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
-      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'collectInfo' as keyof OsmdbtService).mockRejectedValue(new Error('fail collectInfo'));
+      await expect(osmdbtService.executeJob()).rejects.toThrow(updateActionError);
 
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
-      await expect(osmdbtService.executeJob()).resolves.not.toThrow();
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.GENERAL_ERROR);
-    });
-
-    it('should collectInfo true', async () => {
-      reserveAccess.mockResolvedValue(undefined);
-      const tracer = osmdbtService['tracer'];
-      const mockSpan = {
-        setAttribute: jest.fn(),
-        setAttributes: jest.fn(),
-        spanContext: jest.fn(),
-        addEvent: jest.fn(),
-        addLink: jest.fn(),
-        addLinks: jest.fn(),
-        end: jest.fn(),
-        isRecording: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        updateName: jest.fn(),
-      };
-
-      (osmdbtService as unknown as { appConfig: { [x: string]: unknown; shouldCollectInfo: boolean } }).appConfig = {
-        ...osmdbtService['appConfig'],
-        shouldCollectInfo: true,
-      };
-
-      //@ts-expect-error spyOn a private function. it thinks it should only resolve as Promise<void>
-      jest.spyOn(osmdbtService, 'pullStateFile' as keyof OsmdbtService).mockResolvedValueOnce(ExitCodes.SUCCESS);
-      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValueOnce('1');
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('2');
-      //@ts-expect-error due to private function
-      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue('{"test": "test"}');
-      jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockResolvedValue(undefined);
-
-      const processExitSafelySpy = jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService);
-      await expect(osmdbtService.executeJob()).resolves.not.toThrow();
-      expect(processExitSafelySpy).toHaveBeenCalledWith(ExitCodes.SUCCESS);
-    });
-
-    it('should handle error in processExitSafely', async () => {
-      reserveAccess.mockResolvedValue(undefined);
-      const tracer = osmdbtService['tracer'];
-      const mockSpan = {
-        setAttribute: jest.fn(),
-        setAttributes: jest.fn(),
-        spanContext: jest.fn(),
-        addEvent: jest.fn(),
-        addLink: jest.fn(),
-        addLinks: jest.fn(),
-        end: jest.fn(),
-        isRecording: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        updateName: jest.fn(),
-      };
-      jest.spyOn(tracer, 'startActiveSpan').mockImplementation((name, opts, ctx, fn) => fn(mockSpan));
-      (jest.spyOn(osmdbtService, 'getSequenceNumber' as keyof OsmdbtService) as jest.Mock).mockResolvedValue('1');
-      jest.spyOn(osmdbtService, 'runCommand' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'uploadDiff' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'commitChanges' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'collectInfo' as keyof OsmdbtService).mockResolvedValue(undefined);
-      jest.spyOn(osmdbtService, 'processExitSafely' as keyof OsmdbtService).mockImplementation(() => {
-        throw new Error('fail processExitSafely');
-      });
-      await expect(osmdbtService.executeJob()).rejects.toThrow('fail processExitSafely');
-    });
-  });
-
-  describe('runCommand', () => {
-    const mockedExeca = execa as jest.MockedFunction<typeof execa>;
-
-    test.each<{
-      executable: Executable;
-      command: string;
-      commandArgs: string[];
-      resolvedExeca: execa.ExecaReturnValue<Buffer>;
-    }>([
-      {
-        executable: 'osmdbt',
-        command: 'GET_LOG',
-        commandArgs: [],
-        resolvedExeca: {
-          command: 'osmdbt GET_LOG',
-          escapedCommand: 'osmdbt GET_LOG',
-          exitCode: 0,
-          failed: false,
-          killed: false,
-          timedOut: false,
-          isCanceled: false,
-          signal: undefined,
-          stdout: Buffer.from('mocked buffer'),
-          stderr: Buffer.from(''),
-          all: undefined,
-        },
-      },
-    ])('should osmdbt runCommand with exit code 0', async ({ executable, command, commandArgs, resolvedExeca }) => {
-      reserveAccess.mockResolvedValue(undefined);
-
-      mockedExeca.mockResolvedValue(resolvedExeca);
-
-      const result = await (
-        osmdbtService as unknown as { runCommand: (executable: string, command: string, commandArgs: string[]) => Promise<string> }
-      ).runCommand(executable, command, commandArgs);
-      expect(result.toString()).toBe(resolvedExeca.stdout.toString());
-    });
-
-    test.each<{
-      executable: Executable;
-      command: string;
-      commandArgs?: string[];
-      resolvedExeca: execa.ExecaReturnValue<Buffer>;
-    }>([
-      {
-        executable: 'osmdbt',
-        command: 'GET_LOG',
-        commandArgs: [],
-        resolvedExeca: {
-          command: 'osmdbt GET_LOG',
-          escapedCommand: 'osmdbt GET_LOG',
-          exitCode: 1,
-          failed: false,
-          killed: false,
-          timedOut: false,
-          isCanceled: false,
-          signal: undefined,
-          stdout: Buffer.from('mocked buffer'),
-          stderr: Buffer.from('mocked error'),
-          all: undefined,
-        },
-      },
-      {
-        executable: 'osmium',
-        command: 'GET_LOG',
-        resolvedExeca: {
-          command: 'osmium GET_LOG',
-          escapedCommand: 'osmium GET_LOG',
-          exitCode: 1,
-          failed: false,
-          killed: false,
-          timedOut: false,
-          isCanceled: false,
-          signal: undefined,
-          stdout: Buffer.from(''),
-          stderr: Buffer.from(''),
-          all: undefined,
-        },
-      },
-    ])('should fail runCommand', async ({ executable, command, commandArgs, resolvedExeca }) => {
-      reserveAccess.mockResolvedValue(undefined);
-
-      mockedExeca.mockResolvedValue(resolvedExeca);
-
-      await expect(
-        (osmdbtService as unknown as { runCommand: (executable: string, command: string, commandArgs?: string[]) => Promise<string> }).runCommand(
-          executable,
-          command,
-          commandArgs
-        )
-      ).rejects.toThrow(resolvedExeca.stderr.toString());
-    });
-
-    it('should throw "executable errored" when error is not instance of Error', async () => {
-      mockedExeca.mockRejectedValueOnce('non-error rejection');
-
-      await expect(
-        (osmdbtService as unknown as { runCommand: (executable: string, command: string, commandArgs?: string[]) => Promise<string> }).runCommand(
-          'osmdbt',
-          'TEST'
-        )
-      ).rejects.toThrow(new ErrorWithExitCode('osmdbt errored', ExitCodes.OSMDBT_ERROR));
-    });
-  });
-
-  describe('rollback', () => {
-    interface Rollback {
-      rollback: () => Promise<string>;
-    }
-    it('should rollback successfully', async () => {
-      uploadFile.mockResolvedValueOnce(true);
-
-      await expect((osmdbtService as unknown as Rollback).rollback()).resolves.toBeUndefined();
-    });
-
-    it('should fail rollback', async () => {
-      const error = new Error('S3 upload file mock error');
-      uploadFile.mockRejectedValueOnce(error);
-
-      await expect((osmdbtService as unknown as Rollback).rollback()).rejects.toThrow(error);
-    });
-  });
-
-  describe('markLogFilesForCatchup', () => {
-    interface MarkLogFilesForCatchup {
-      markLogFilesForCatchup: () => Promise<string>;
-    }
-
-    it('should markLogFilesForCatchup successfully', async () => {
-      readdir.mockResolvedValueOnce(['test', 'test.done'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
-
-      await expect((osmdbtService as unknown as MarkLogFilesForCatchup).markLogFilesForCatchup()).resolves.toBeUndefined();
-    });
-
-    it('should markLogFilesForCatchup fail because readdir fails', async () => {
-      const error = new Error('some error');
-      readdir.mockRejectedValueOnce(error);
-
-      await expect((osmdbtService as unknown as MarkLogFilesForCatchup).markLogFilesForCatchup()).rejects.toBe(error);
-    });
-
-    it('should markLogFilesForCatchup fail because rename fails', async () => {
-      readdir.mockResolvedValueOnce(['test', 'test.done'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
-
-      const error = new Error('some error');
-      rename.mockRejectedValueOnce(error);
-
-      await expect((osmdbtService as unknown as MarkLogFilesForCatchup).markLogFilesForCatchup()).rejects.toBe(error);
-    });
-  });
-
-  describe('postCatchupCleanup', () => {
-    interface PostCatchupCleanup {
-      postCatchupCleanup: () => Promise<string>;
-    }
-
-    it('should postCatchupCleanup successfully', async () => {
-      readdir.mockResolvedValueOnce(['test'] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
-      unlink.mockResolvedValueOnce(undefined);
-
-      await expect((osmdbtService as unknown as PostCatchupCleanup).postCatchupCleanup()).resolves.toBeUndefined();
-    });
-
-    it('should postCatchupCleanup throw error', async () => {
-      const error = new Error('some error');
-      readdir.mockRejectedValueOnce(error);
-
-      await expect((osmdbtService as unknown as PostCatchupCleanup).postCatchupCleanup()).rejects.toBe(error);
-    });
-  });
-
-  describe('prepareEnvironment', () => {
-    interface PrepareEnvironment {
-      prepareEnvironment: () => Promise<string>;
-    }
-
-    it('should prepareEnvironment successfully', async () => {
-      mkdir.mockResolvedValueOnce(undefined);
-
-      await expect((osmdbtService as unknown as PrepareEnvironment).prepareEnvironment()).resolves.toBeUndefined();
-    });
-
-    it('should prepareEnvironment because mkdir throws error', async () => {
-      const error = new Error('some error');
-      mkdir.mockRejectedValueOnce(error);
-
-      await expect((osmdbtService as unknown as PrepareEnvironment).prepareEnvironment()).rejects.toBe(error);
+      expect(mediatorMockFn.reserveAccessMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.mkdirMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.getObjectMock).toHaveBeenCalledWith(STATE_FILE);
+      expect(fsRepositoryMockFn.writeFileMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readFileMock).toHaveBeenCalledTimes(5);
+      expect(osmdbtExecutableMockFn.getLogMock).toHaveBeenCalledTimes(1);
+      expect(osmdbtExecutableMockFn.createDiffMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.createActionMock).toHaveBeenCalledWith({ state: 667 });
+      expect(mediatorMockFn.removeLockMock).toHaveBeenCalledTimes(1);
+      expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
+      expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
+      expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledTimes(1);
+      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledWith('/tmp/000/000/667.osc.gz');
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
+      expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.COMPLETED, metadata: {} });
+      expect(osmdbtService['isActiveJob']).toBeFalsy();
     });
   });
 });

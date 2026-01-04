@@ -223,7 +223,6 @@ export class OsmdbtService {
 
     try {
       await Promise.all(uploads);
-
       const endStateFileBuffer = (await this.fsRepository.readFile(this.osmdbtStatePath)) as Buffer;
 
       await this.s3Manager.putObject(STATE_FILE, endStateFileBuffer);
@@ -295,11 +294,11 @@ export class OsmdbtService {
       span?.setAttribute('mark.count', renameFilesPromises.length);
 
       await Promise.all(renameFilesPromises);
+      handleSpanOnSuccess(span);
     } catch (error) {
       handleSpanOnError(span, error);
       throw error;
     }
-    handleSpanOnSuccess(span);
   }
 
   private async rollback(span?: Span): Promise<void> {

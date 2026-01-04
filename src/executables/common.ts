@@ -81,7 +81,7 @@ export abstract class CommonExecutable {
     } catch (error) {
       this.logger.error({ msg: 'failure occurred during command execution', executable: this.executableName, command, args: commandArgs });
 
-      const message = error instanceof Error ? error.message : `${this.executableName} errored`;
+      const message = error instanceof Error && error.message.length > 0 ? error.message : `${this.executableName} ${command} errored`;
       throw new ErrorWithExitCode(message, ExitCodes.OSMDBT_ERROR);
     } finally {
       commandTimer?.({ exitCode: exitCode });
