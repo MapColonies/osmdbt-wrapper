@@ -22,11 +22,10 @@ data:
   {{- else }}
   TELEMETRY_TRACING_ENABLED: "false"
   {{- end }}
-  {{ if .Values.env.app.shouldLockObjectStorage }}
-  APP_SHOULD_LOCK_OBJECT_STORAGE: "true"
-  {{- else }}
-  APP_SHOULD_LOCK_OBJECT_STORAGE: "false"
-  {{- end }}
+  {{ if .Values.env.metrics.enabled }}
+  TELEMETRY_METRICS_ENABLED: 'true'
+  TELEMETRY_METRICS_URL: {{ $metricsUrl }}
+  {{ end }}
   {{ if .Values.env.app.shouldCollectInfo }}
   APP_SHOULD_COLLECT_INFO: "true"
   {{- else }}
@@ -43,10 +42,10 @@ data:
   {{- else }}
   OSMDBT_VERBOSE: "false"
   {{- end }}
-  {{- if .Values.cronjob.enabled }}
+  {{- if .Values.app.cron.enabled }}
   APP_CRON_ENABLED: "true"
-  APP_CRON_EXPRESSION: {{ .Values.cronjob.expression | quote }}
-  APP_CRON_FAILURE_PENALTY: {{ .Values.cronjob.failurePenalty | quote }}
+  APP_CRON_EXPRESSION: {{ .Values.app.cron.expression | quote }}
+  APP_CRON_FAILURE_PENALTY: {{ .Values.app.cron.failurePenalty | quote }}
   {{- else }}
   {{- end }}
 {{- end -}}

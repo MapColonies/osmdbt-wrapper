@@ -15,7 +15,6 @@ cloudProvider:
 
 deployment:
   enabled: true
-  replicaCount: 1
 
 image:
   repository: osmdbt-wrapper
@@ -32,17 +31,15 @@ resources:
       cpu: 100m
       memory: 128Mi
 
-cronjob:
-  enabled: true
-  expression: '*/30 * * * * *' # second (optional) | minute | hour | day of month | month | day of week
-  failurePenalty: 500 # in MS
-
 env:
   logLevel: info
   tracing:
     enabled: true
     url: 'http://localhost:55681/v1/trace'
     ratio: 1
+  metrics:
+    enabled: false
+    url: http://localhost:55681/v1/metrics
   osmdbt:
     replicationSlotName: replication_slot_name
     getLogMaxChanges: 50000
@@ -51,8 +48,11 @@ env:
     verbose: false
     progress: false
   app:
-    shouldLockObjectStorage: false
     shouldCollectInfo: false
+    cron:
+      enabled: true
+      expression: '*/30 * * * * *' # second (optional) | minute | hour | day of month | month | day of week
+      failurePenalty: 5000 # in MS
 
 dbConfig:
   host: postgresHost
