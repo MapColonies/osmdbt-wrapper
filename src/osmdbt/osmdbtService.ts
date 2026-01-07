@@ -48,6 +48,7 @@ export class OsmdbtService {
       this.jobCounter = new PromCounter({
         name: 'osmdbt_job_count',
         help: 'The total number of osmdbt jobs started',
+        labelNames: ['status'] as const,
         registers: [registry],
       });
       this.jobDurationHistogram = new Histogram({
@@ -78,7 +79,6 @@ export class OsmdbtService {
     let jobExitCode = ExitCodes.SUCCESS;
 
     const jobTimer = this.jobDurationHistogram?.startTimer();
-    this.jobCounter?.inc();
 
     await this.tracer.startActiveSpan(SpanName.ROOT_JOB, { attributes: { [JobAttributes.JOB_ROLLBACK]: false } }, async (rootJobSpan) => {
       try {
@@ -89,6 +89,7 @@ export class OsmdbtService {
         throw error;
       } finally {
         jobTimer?.({ exitCode: jobExitCode.toString() });
+        this.jobCounter?.inc({ status: jobExitCode === ExitCodes.SUCCESS ? 'completed' : 'failed' });
         rootJobSpan.setAttributes({ [JobAttributes.JOB_EXITCODE]: jobExitCode });
         rootJobSpan.setStatus({ code: jobExitCode === (ExitCodes.SUCCESS || ExitCodes.TERMINATED) ? SpanStatusCode.OK : SpanStatusCode.ERROR });
         rootJobSpan.end();
@@ -160,9 +161,11 @@ export class OsmdbtService {
     await this.tracer.startActiveSpan(SpanName.POST_CATCHUP, async (span) => this.postCatchupCleanup(span));
 
     const metadata: Record<string, unknown> = {};
-    await attemptSafely(async () => {
-      metadata.info = await this.collectInfo(endState);
-    });
+    if (this.appConfig.shouldCollectInfo) {
+      await attemptSafely(async () => {
+        metadata.info = await this.collectInfo(endState);
+      });
+    }
 
     await this.mediator.updateAction({ status: ActionStatus.COMPLETED, metadata });
 

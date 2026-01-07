@@ -1,6 +1,7 @@
 {{- $releaseName := .Release.Name -}}
 {{- $chartName := include "osmdbt-wrapper.name" . -}}
 {{- $tracingUrl := include "osmdbt-wrapper.tracingUrl" . -}}
+{{- $metricsUrl := include "osmdbt-wrapper.metricsUrl" . -}}
 {{- if .Values.enabled -}}
 apiVersion: v1
 kind: ConfigMap
@@ -42,10 +43,10 @@ data:
   {{- else }}
   OSMDBT_VERBOSE: "false"
   {{- end }}
-  {{- if .Values.app.cron.enabled }}
+  {{- if .Values.env.app.cron.enabled }}
   APP_CRON_ENABLED: "true"
-  APP_CRON_EXPRESSION: {{ .Values.app.cron.expression | quote }}
-  APP_CRON_FAILURE_PENALTY: {{ .Values.app.cron.failurePenalty | quote }}
+  APP_CRON_EXPRESSION: {{ .Values.env.app.cron.expression | quote }}
+  APP_CRON_FAILURE_PENALTY: {{ .Values.env.app.cron.failurePenalty | quote }}
   {{- else }}
   {{- end }}
 {{- end -}}

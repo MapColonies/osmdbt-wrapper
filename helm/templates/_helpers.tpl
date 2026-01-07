@@ -102,3 +102,14 @@ Returns the tracing url from global if exists or from the chart's values
     {{- .Values.env.tracing.url -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Returns the metrics url from global if exists or from the chart's values
+*/}}
+{{- define "osmdbt-wrapper.metricsUrl" -}}
+{{- if .Values.global.metrics.url }}
+    {{- .Values.global.metrics.url -}}
+{{- else if .Values.env.metrics.url -}}
+    {{- .Values.env.metrics.url -}}
+{{- end -}}
+{{- end -}}

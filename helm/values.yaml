@@ -1,6 +1,7 @@
 global:
   cloudProvider: {}
   tracing: {}
+  metrics: {}
   environment: {}
 
 enabled: true
