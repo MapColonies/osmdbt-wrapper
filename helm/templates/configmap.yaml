@@ -43,4 +43,10 @@ data:
   {{- else }}
   OSMDBT_VERBOSE: "false"
   {{- end }}
+  {{- if .Values.cronjob.enabled }}
+  APP_CRON_ENABLED: "true"
+  APP_CRON_EXPRESSION: {{ .Values.cronjob.expression | quote }}
+  APP_CRON_FAILURE_PENALTY: {{ .Values.cronjob.failurePenalty | quote }}
+  {{- else }}
+  {{- end }}
 {{- end -}}

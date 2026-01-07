@@ -6,23 +6,21 @@ global:
 enabled: true
 environment: development
 
-cronAnnotations: {}
-jobAnnotations: {}
+annotations: {}
 podAnnotations: {}
 
 cloudProvider:
   flavor: openshift
   dockerRegistryUrl: my-registry.io
 
+deployment:
+  enabled: true
+  replicaCount: 1
+
 image:
   repository: osmdbt-wrapper
-  # Overrides the image tag whose default is the chart appVersion.
-  # tag: 'v1.0.0'
+  tag: 'v3.0.0'
   pullPolicy: Always
-
-cronjob:
-  schedule: '* */1 * * *'
-  apiVersion: 'batch/v1' # depends on openshift version batch/v1 or batch/v1beta1
 
 resources:
   enabled: false
@@ -33,6 +31,11 @@ resources:
     requests:
       cpu: 100m
       memory: 128Mi
+
+cronjob:
+  enabled: true
+  expression: '*/30 * * * * *' # second (optional) | minute | hour | day of month | month | day of week
+  failurePenalty: 500 # in MS
 
 env:
   logLevel: info
@@ -62,7 +65,7 @@ dbConfig:
     mountPath: '/tmp/certs-postgres'
 
 objectStrorageConfig:
-  endpoint: http://localhost:9000/
+  endpoint: 'http://localhost:9000/'
   bucketName: bucketName
   accessKey: accessKey
   secretKey: secretKey
