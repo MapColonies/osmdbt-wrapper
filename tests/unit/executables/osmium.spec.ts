@@ -3,7 +3,7 @@ import jsLogger from '@map-colonies/js-logger';
 import { Registry } from 'prom-client';
 import { ConfigType, getConfig, initConfig } from '@src/common/config';
 import { ErrorWithExitCode } from '@src/common/errors';
-import { ExitCodes } from '@src/common/constants';
+import { ExitCodes, OSMIUM_BIN_PATH } from '@src/common/constants';
 import { OsmiumExecutable } from '@src/executables/osmium';
 
 jest.mock('execa', () => ({
@@ -43,7 +43,7 @@ describe('osmium', () => {
       await expect(osmiumExecutable.fileInfo(MOCK_PATH)).resolves.not.toThrow();
 
       expect(execaMock).toHaveBeenCalledTimes(1);
-      expect(execaMock).toHaveBeenCalledWith('/osmdbt/build/src/fileinfo', ['--no-progress', '--extended', '--json', MOCK_PATH], {
+      expect(execaMock).toHaveBeenCalledWith(OSMIUM_BIN_PATH, ['fileinfo', '--no-progress', '--extended', '--json', MOCK_PATH], {
         encoding: 'utf-8',
       });
     });
@@ -54,7 +54,7 @@ describe('osmium', () => {
       await expect(osmiumExecutable.fileInfo(MOCK_PATH)).rejects.toStrictEqual(new ErrorWithExitCode('stderr', ExitCodes.OSMDBT_ERROR));
 
       expect(execaMock).toHaveBeenCalledTimes(1);
-      expect(execaMock).toHaveBeenCalledWith('/osmdbt/build/src/fileinfo', ['--no-progress', '--extended', '--json', MOCK_PATH], {
+      expect(execaMock).toHaveBeenCalledWith(OSMIUM_BIN_PATH, ['fileinfo', '--no-progress', '--extended', '--json', MOCK_PATH], {
         encoding: 'utf-8',
       });
     });
@@ -67,7 +67,7 @@ describe('osmium', () => {
       );
 
       expect(execaMock).toHaveBeenCalledTimes(1);
-      expect(execaMock).toHaveBeenCalledWith('/osmdbt/build/src/fileinfo', ['--no-progress', '--extended', '--json', MOCK_PATH], {
+      expect(execaMock).toHaveBeenCalledWith(OSMIUM_BIN_PATH, ['fileinfo', '--no-progress', '--extended', '--json', MOCK_PATH], {
         encoding: 'utf-8',
       });
     });
@@ -79,7 +79,7 @@ describe('osmium', () => {
       await expect(osmiumExecutable.fileInfo(MOCK_PATH)).rejects.toStrictEqual(new ErrorWithExitCode(error.message, ExitCodes.OSMDBT_ERROR));
 
       expect(execaMock).toHaveBeenCalledTimes(1);
-      expect(execaMock).toHaveBeenCalledWith('/osmdbt/build/src/fileinfo', ['--no-progress', '--extended', '--json', MOCK_PATH], {
+      expect(execaMock).toHaveBeenCalledWith(OSMIUM_BIN_PATH, ['fileinfo', '--no-progress', '--extended', '--json', MOCK_PATH], {
         encoding: 'utf-8',
       });
     });
@@ -93,7 +93,7 @@ describe('osmium', () => {
       );
 
       expect(execaMock).toHaveBeenCalledTimes(1);
-      expect(execaMock).toHaveBeenCalledWith('/osmdbt/build/src/fileinfo', ['--no-progress', '--extended', '--json', MOCK_PATH], {
+      expect(execaMock).toHaveBeenCalledWith(OSMIUM_BIN_PATH, ['fileinfo', '--no-progress', '--extended', '--json', MOCK_PATH], {
         encoding: 'utf-8',
       });
     });

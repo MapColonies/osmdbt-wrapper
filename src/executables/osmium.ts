@@ -1,8 +1,7 @@
-import { join } from 'path';
 import { Registry as PromRegistry } from 'prom-client';
 import { type Logger } from '@map-colonies/js-logger';
 import { inject, injectable } from 'tsyringe';
-import { OSMDBT_BIN_PATH, SERVICES } from '@src/common/constants';
+import { OSMIUM_BIN_PATH, SERVICES } from '@src/common/constants';
 import { type ConfigType } from '@src/common/config';
 import { OsmiumConfig } from '@src/common/interfaces';
 import { CommonExecutable } from './common';
@@ -34,12 +33,12 @@ export class OsmiumExecutable extends CommonExecutable {
     return 'osmium';
   }
 
-  protected getExecutablePath(context: CommandContext): string {
-    return join(OSMDBT_BIN_PATH, context.command);
+  protected getExecutablePath(): string {
+    return OSMIUM_BIN_PATH;
   }
 
   protected getArgs(context: CommandContext): string[] {
-    return [...this.getGlobalArgs(), ...context.args];
+    return [context.command, ...this.getGlobalArgs(), ...context.args];
   }
 
   protected getGlobalArgs(): string[] {

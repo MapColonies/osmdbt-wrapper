@@ -43,6 +43,16 @@ data:
   {{- else }}
   OSMDBT_VERBOSE: "false"
   {{- end }}
+  {{- if .Values.env.osmium.verbose }}
+  OSMIUM_VERBOSE: "true"
+  {{- else }}
+  OSMIUM_VERBOSE: "false"
+  {{- end }}
+  {{- if .Values.env.osmium.progress }}
+  OSMIUM_PROGRESS: "true"
+  {{- else }}
+  OSMIUM_PROGRESS: "false"
+  {{- end }}
   {{- if .Values.env.app.cron.enabled }}
   APP_CRON_ENABLED: "true"
   APP_CRON_EXPRESSION: {{ .Values.env.app.cron.expression | quote }}

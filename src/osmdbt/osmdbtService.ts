@@ -158,14 +158,15 @@ export class OsmdbtService {
       }
     });
 
-    await this.tracer.startActiveSpan(SpanName.POST_CATCHUP, async (span) => this.postCatchupCleanup(span));
-
     const metadata: Record<string, unknown> = {};
+
     if (this.appConfig.shouldCollectInfo) {
       await attemptSafely(async () => {
         metadata.info = await this.collectInfo(endState);
       });
     }
+
+    await this.tracer.startActiveSpan(SpanName.POST_CATCHUP, async (span) => this.postCatchupCleanup(endState, span));
 
     await this.mediator.updateAction({ status: ActionStatus.COMPLETED, metadata });
 
@@ -254,27 +255,34 @@ export class OsmdbtService {
     }
   }
 
-  private async postCatchupCleanup(span?: Span): Promise<void> {
+  private async postCatchupCleanup(sequenceNumber: string, span?: Span): Promise<void> {
     const { logDir } = this.osmdbtConfig;
+
     try {
-      const logFilesNames = await this.fsRepository.readdir(logDir);
+      const [top, bottom] = getDiffDirPathComponents(sequenceNumber);
+      const changeDir = join(this.osmdbtConfig.changesDir, top, bottom);
 
-      this.logger.info({ msg: 'post catchup cleanup, log files to unlink', count: logFilesNames.length });
+      const [changeFiles, logFiles] = await Promise.all([
+        (await this.fsRepository.readdir(changeDir)).map((fileName) => join(changeDir, fileName)),
+        (await this.fsRepository.readdir(logDir)).map((fileName) => join(logDir, fileName)),
+      ]);
 
-      const unlinkFilesPromises = logFilesNames.map(async (logFileName) => {
-        const logFilePath = join(logDir, logFileName);
-        return this.fsRepository.unlink(logFilePath);
-      });
+      const filesToUnlink = [...changeFiles, ...logFiles];
 
-      span?.setAttribute('unlink.count', unlinkFilesPromises.length);
+      this.logger.info({ msg: 'post catchup cleanup, files to unlink', count: filesToUnlink.length, files: filesToUnlink });
+
+      span?.setAttribute('unlink.count', filesToUnlink.length);
+
+      const unlinkFilesPromises = filesToUnlink.map(async (filePath) => this.fsRepository.unlink(filePath));
 
       await Promise.all(unlinkFilesPromises);
+
+      handleSpanOnSuccess(span);
     } catch (error) {
       await attemptSafely(async () => this.mediator.updateAction({ status: ActionStatus.FAILED, metadata: { error } }));
       handleSpanOnError(span, error);
       throw error;
     }
-    handleSpanOnSuccess(span);
   }
 
   private async markLogFilesForCatchup(span?: Span): Promise<void> {
@@ -305,6 +313,7 @@ export class OsmdbtService {
   }
 
   private async rollback(span?: Span): Promise<void> {
+    this.jobCounter?.inc({ status: 'rollback' });
     this.logger.warn({ msg: 'attempting to rollback state from backup' });
 
     try {

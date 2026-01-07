@@ -590,7 +590,7 @@ describe('OsmdbtService', () => {
       expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(1);
       expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
       expect(fsRepositoryMockFn.renameMock).toHaveBeenCalledTimes(1);
-      expect(fsRepositoryMockFn.renameMock).toHaveBeenCalledWith('/tmp/log/mock.done', '/tmp/log/mock');
+      expect(fsRepositoryMockFn.renameMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.logDir}/mock.done`, `${config.get('osmdbt')?.logDir}/mock`);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
       expect(osmdbtService['isActiveJob']).toBeFalsy();
@@ -846,7 +846,10 @@ describe('OsmdbtService', () => {
       osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
       fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
       mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
-      fsRepositoryMockFn.readdirMock.mockResolvedValueOnce([]).mockResolvedValueOnce(['/mock']);
+      fsRepositoryMockFn.readdirMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(['666.osc.gz', '666.state.txt'])
+        .mockResolvedValueOnce(['mock.log']);
       fsRepositoryMockFn.unlinkMock.mockRejectedValueOnce(error);
 
       await expect(osmdbtService.executeJob()).rejects.toThrow(error);
@@ -865,10 +868,13 @@ describe('OsmdbtService', () => {
       expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
       expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
       expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
-      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(3);
       expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
-      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledTimes(1);
-      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledWith('/tmp/log/mock');
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/000/000`);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledTimes(3);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.logDir}/mock.log`);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/000/000/666.osc.gz`);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/000/000/666.state.txt`);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
       expect(osmdbtService['isActiveJob']).toBeFalsy();
@@ -885,7 +891,7 @@ describe('OsmdbtService', () => {
       osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
       fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
       mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
-      fsRepositoryMockFn.readdirMock.mockResolvedValueOnce([]).mockResolvedValueOnce(['/mock']);
+      fsRepositoryMockFn.readdirMock.mockResolvedValueOnce([]).mockResolvedValueOnce(['666.osc.gz']).mockResolvedValueOnce(['mock.log']);
       fsRepositoryMockFn.unlinkMock.mockRejectedValueOnce(error);
       mediatorMockFn.updateActionMock.mockRejectedValueOnce(updateActionError);
 
@@ -905,10 +911,11 @@ describe('OsmdbtService', () => {
       expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
       expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
       expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
-      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(3);
       expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
-      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledTimes(1);
-      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledWith('/tmp/log/mock');
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/000/000`);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.unlinkMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.logDir}/mock.log`);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.FAILED, metadata: { error } });
       expect(osmdbtService['isActiveJob']).toBeFalsy();
@@ -924,7 +931,7 @@ describe('OsmdbtService', () => {
       osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
       fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
       mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
-      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      fsRepositoryMockFn.readdirMock.mockResolvedValueOnce([]).mockResolvedValue([]).mockResolvedValue([]);
       osmiumExecutableMockFn.fileInfoMock.mockRejectedValueOnce(error);
 
       await expect(osmdbtService.executeJob()).resolves.not.toThrow();
@@ -943,10 +950,11 @@ describe('OsmdbtService', () => {
       expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
       expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
       expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
-      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(3);
       expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/000/000`);
       expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledTimes(1);
-      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledWith('/tmp/000/000/667.osc.gz');
+      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/000/000/667.osc.gz`);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.COMPLETED, metadata: {} });
       expect(osmdbtService['isActiveJob']).toBeFalsy();
@@ -981,10 +989,11 @@ describe('OsmdbtService', () => {
       expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
       expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
       expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
-      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(3);
       expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/000/000`);
       expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledTimes(1);
-      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledWith('/tmp/000/000/667.osc.gz');
+      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/000/000/667.osc.gz`);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.COMPLETED, metadata: { info: expectedMetadata } });
       expect(osmdbtService['isActiveJob']).toBeFalsy();
@@ -1000,7 +1009,7 @@ describe('OsmdbtService', () => {
       osmdbtExecutableMockFn.createDiffMock.mockResolvedValueOnce(undefined);
       fsRepositoryMockFn.readFileMock.mockResolvedValueOnce(NEXT_STATE_FILE_CONTENT);
       mediatorMockFn.createActionMock.mockResolvedValueOnce(undefined);
-      fsRepositoryMockFn.readdirMock.mockResolvedValue([]);
+      fsRepositoryMockFn.readdirMock.mockResolvedValueOnce([]);
       mediatorMockFn.updateActionMock.mockRejectedValueOnce(updateActionError);
 
       await expect(osmdbtService.executeJob()).rejects.toThrow(updateActionError);
@@ -1019,10 +1028,10 @@ describe('OsmdbtService', () => {
       expect(s3ManagerMockFn.putObjectMock).toHaveBeenCalledTimes(3);
       expect(s3ManagerMockFn.putObjectMock).not.toHaveBeenCalledWith(STATE_FILE, PREV_STATE_FILE_CONTENT);
       expect(osmdbtExecutableMockFn.catchupMock).toHaveBeenCalledTimes(1);
-      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(2);
+      expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledTimes(3);
       expect(fsRepositoryMockFn.readdirMock).toHaveBeenCalledWith(config.get('osmdbt')?.logDir);
       expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledTimes(1);
-      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledWith('/tmp/000/000/667.osc.gz');
+      expect(osmiumExecutableMockFn.fileInfoMock).toHaveBeenCalledWith(`${config.get('osmdbt')?.changesDir}/000/000/667.osc.gz`);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledTimes(1);
       expect(mediatorMockFn.updateActionMock).toHaveBeenCalledWith({ status: ActionStatus.COMPLETED, metadata: {} });
       expect(osmdbtService['isActiveJob']).toBeFalsy();

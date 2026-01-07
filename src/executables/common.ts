@@ -57,7 +57,7 @@ export abstract class CommonExecutable {
     const commandArgs = this.getArgs(context);
     const executablePath = this.getExecutablePath(context);
 
-    this.logger.info({ msg: 'executing command', executable: this.executableName, command, args: commandArgs });
+    this.logger.info({ msg: 'executing command', executable: this.executableName, executablePath, command, args: commandArgs });
 
     let exitCode: number = ExitCodes.SUCCESS;
     let commandTimer: ReturnType<Histogram['startTimer']> | undefined;
@@ -94,5 +94,5 @@ export abstract class CommonExecutable {
 
   protected abstract getGlobalArgs(): string[];
 
-  protected abstract getExecutablePath(context: CommandContext): string;
+  protected abstract getExecutablePath(context?: CommandContext): string;
 }
