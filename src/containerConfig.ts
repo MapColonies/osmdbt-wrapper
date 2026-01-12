@@ -37,6 +37,7 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
 
             const cleanupRegistryLogger = logger.child({ subComponent: 'cleanupRegistry' });
             cleanupRegistry.on('itemFailed', (id, error, msg) => cleanupRegistryLogger.error({ msg, itemId: id, err: error }));
+            cleanupRegistry.on('itemCompleted', (id) => cleanupRegistryLogger.info({ msg: 'cleanup registry finished item', itemId: id }));
             cleanupRegistry.on('finished', (status) => cleanupRegistryLogger.info({ msg: `cleanup registry finished cleanup`, status }));
 
             return logger;

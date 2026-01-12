@@ -21,6 +21,7 @@ export const SERVICES = {
 } satisfies Record<string, symbol>;
 /* eslint-enable @typescript-eslint/naming-convention */
 
+export const TERMINUS_FACTORY = Symbol('TerminusFactory');
 export const ON_SIGNAL = Symbol('OnSignal');
 
 export const OSMDBT_CONFIG_PATH = join(OSMDBT_BASE_PATH, 'config', 'osmdbt-config.yaml');
