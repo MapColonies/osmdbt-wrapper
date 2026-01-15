@@ -1,0 +1,138 @@
+import { getOtelMixin } from '@map-colonies/telemetry';
+import { CleanupRegistry } from '@map-colonies/cleanup-registry';
+import { StatefulMediator } from '@map-colonies/arstotzka-mediator';
+import { instanceCachingFactory, instancePerContainerCachingFactory } from 'tsyringe';
+import { trace } from '@opentelemetry/api';
+import { Registry } from 'prom-client';
+import { DependencyContainer } from 'tsyringe/dist/typings/types';
+import jsLogger, { type Logger } from '@map-colonies/js-logger';
+import { InjectionObject, registerDependencies } from '@common/dependencyRegistration';
+import { ARSTOTZKA_DISABLED_ERROR_MSG, ON_SIGNAL, SERVICES, SERVICE_NAME, TERMINUS_FACTORY } from '@common/constants';
+import { getTracing } from '@common/tracing';
+import { ConfigType, getConfig } from './common/config';
+import { s3ClientFactory, s3RepositoryFactory } from './s3';
+import { S3_REPOSITORY } from './s3/s3Repository';
+import { isSingleTask, OSMDBT_PROCESSOR, osmdbtProcessorFactory, OsmdbtProcessor } from './osmdbt';
+import { ArstotzkaConfig } from './common/interfaces';
+import { terminusFactory } from './common/terminus';
+
+export interface RegisterOptions {
+  override?: InjectionObject<unknown>[];
+  useChild?: boolean;
+}
+
+export const registerExternalValues = async (options?: RegisterOptions): Promise<DependencyContainer> => {
+  const cleanupRegistry = new CleanupRegistry();
+
+  try {
+    const dependencies: InjectionObject<unknown>[] = [
+      { token: SERVICES.CONFIG, provider: { useValue: getConfig() } },
+      {
+        token: SERVICES.LOGGER,
+        provider: {
+          useFactory: instancePerContainerCachingFactory((container) => {
+            const config = container.resolve<ConfigType>(SERVICES.CONFIG);
+
+            const loggerConfig = config.get('telemetry.logger');
+            const logger = jsLogger({ ...loggerConfig, prettyPrint: loggerConfig.prettyPrint, mixin: getOtelMixin() });
+
+            const cleanupRegistryLogger = logger.child({ subComponent: 'cleanupRegistry' });
+            cleanupRegistry.on('itemFailed', (id, error, msg) => cleanupRegistryLogger.error({ msg, itemId: id, err: error }));
+            cleanupRegistry.on('itemCompleted', (id) => cleanupRegistryLogger.info({ msg: 'cleanup registry finished item', itemId: id }));
+            cleanupRegistry.on('finished', (status) => cleanupRegistryLogger.info({ msg: `cleanup registry finished cleanup`, status }));
+
+            return logger;
+          }),
+        },
+      },
+      {
+        token: SERVICES.TRACER,
+        provider: {
+          useFactory: instancePerContainerCachingFactory((container) => {
+            const cleanupRegistry = container.resolve<CleanupRegistry>(SERVICES.CLEANUP_REGISTRY);
+            cleanupRegistry.register({ id: SERVICES.TRACER, func: getTracing().stop.bind(getTracing()) });
+            const tracer = trace.getTracer(SERVICE_NAME);
+            return tracer;
+          }),
+        },
+      },
+      {
+        token: SERVICES.METRICS,
+        provider: {
+          useFactory: instancePerContainerCachingFactory((container) => {
+            const metricsRegistry = new Registry();
+            const config = container.resolve<ConfigType>(SERVICES.CONFIG);
+            config.initializeMetrics(metricsRegistry);
+            return metricsRegistry;
+          }),
+        },
+      },
+      {
+        token: SERVICES.CLEANUP_REGISTRY,
+        provider: { useValue: cleanupRegistry },
+      },
+      {
+        token: SERVICES.S3_CLIENT,
+        provider: {
+          useFactory: instancePerContainerCachingFactory(s3ClientFactory),
+        },
+      },
+      {
+        token: S3_REPOSITORY,
+        provider: {
+          useFactory: s3RepositoryFactory,
+        },
+      },
+      {
+        token: SERVICES.MEDIATOR,
+        provider: {
+          useFactory: instancePerContainerCachingFactory((container) => {
+            const config = container.resolve<ConfigType>(SERVICES.CONFIG);
+            const logger = container.resolve<Logger>(SERVICES.LOGGER);
+
+            const arstotzkaConfig = config.get('arstotzka') as ArstotzkaConfig;
+
+            if (!arstotzkaConfig.enabled) {
+              logger.fatal({ msg: ARSTOTZKA_DISABLED_ERROR_MSG, arstotzkaConfig });
+              throw new Error(ARSTOTZKA_DISABLED_ERROR_MSG);
+            }
+
+            return new StatefulMediator({ ...arstotzkaConfig.mediator, serviceId: arstotzkaConfig.serviceId, logger });
+          }),
+        },
+      },
+      { token: TERMINUS_FACTORY, provider: { useFactory: terminusFactory } },
+      {
+        token: ON_SIGNAL,
+        provider: {
+          useValue: cleanupRegistry.trigger.bind(cleanupRegistry),
+        },
+      },
+      {
+        token: OSMDBT_PROCESSOR,
+        provider: {
+          useFactory: instanceCachingFactory(osmdbtProcessorFactory),
+        },
+        postInjectionHook: (container: DependencyContainer): void => {
+          const cleanupRegistry = container.resolve<CleanupRegistry>(SERVICES.CLEANUP_REGISTRY);
+          const osmdbtProcessor = container.resolve<OsmdbtProcessor>(OSMDBT_PROCESSOR);
+
+          cleanupRegistry.register({
+            id: OSMDBT_PROCESSOR,
+            func: async () => {
+              if (!isSingleTask(osmdbtProcessor)) {
+                await osmdbtProcessor.destroy();
+              }
+            },
+          });
+        },
+      },
+    ];
+
+    const container = await registerDependencies(dependencies, options?.override, options?.useChild);
+    return container;
+  } catch (error) {
+    await cleanupRegistry.trigger();
+    throw error;
+  }
+};

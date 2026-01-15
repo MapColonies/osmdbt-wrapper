@@ -11,17 +11,30 @@
       }
     },
     "tracing": {
-      "enabled": {
+      "isEnabled": {
         "__name": "TELEMETRY_TRACING_ENABLED",
         "__format": "boolean"
       },
       "url": "TELEMETRY_TRACING_URL"
+    },
+    "metrics": {
+      "buckets": {
+        "osmdbtJobDurationSeconds": "TELEMETRY_METRICS_OSMDBT_JOB_DURATION_SECONDS",
+        "osmdbtCommandDurationSeconds": "TELEMETRY_METRICS_OSMDBT_COMMAND_DURATION_SECONDS"
+      }
     }
   },
   "app": {
-    "shouldLockObjectStorage": {
-      "__name": "APP_SHOULD_LOCK_OBJECT_STORAGE",
-      "__format": "boolean"
+    "cron": {
+      "enabled": {
+        "__name": "APP_CRON_ENABLED",
+        "__format": "boolean"
+      },
+      "expression": "APP_CRON_EXPRESSION",
+      "failurePenalty": {
+        "__name": "APP_CRON_FAILURE_PENALTY",
+        "__format": "number"
+      }
     },
     "shouldCollectInfo": {
       "__name": "APP_SHOULD_COLLECT_INFO",
@@ -55,8 +68,11 @@
     "endpoint": "OBJECT_STORAGE_ENDPOINT",
     "bucketName": "OBJECT_STORAGE_BUCKET_NAME",
     "acl": "OBJECT_STORAGE_ACL",
-    "accessKey": "AWS_ACCESS_KEY_ID",
-    "secretKey": "AWS_SECRET_ACCESS_KEY"
+    "credentials": {
+      "accessKey": "AWS_ACCESS_KEY_ID",
+      "secretKey": "AWS_SECRET_ACCESS_KEY"
+    },
+    "region": "OBJECT_STORAGE_REGION"
   },
   "arstotzka": {
     "enabled": {

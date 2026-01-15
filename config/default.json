@@ -1,16 +1,32 @@
 {
+  "openapiConfig": {
+    "filePath": "./openapi3.yaml",
+    "basePath": "/docs",
+    "rawPath": "/api",
+    "uiPath": "/api"
+  },
   "telemetry": {
+    "metrics": {
+      "buckets": {
+        "osmdbtJobDurationSeconds": [1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800],
+        "osmdbtCommandDurationSeconds": [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300]
+      }
+    },
+    "tracing": {
+      "isEnabled": false
+    },
+    "shared": {},
     "logger": {
       "level": "info",
       "prettyPrint": false
-    },
-    "tracing": {
-      "enabled": true,
-      "url": "http://localhost:4318/v1/trace"
     }
   },
   "app": {
-    "shouldLockObjectStorage": false,
+    "cron": {
+      "enabled": false,
+      "expression": "*/30 * * * * *",
+      "failurePenalty": 10000
+    },
     "shouldCollectInfo": false
   },
   "osmdbt": {
@@ -25,11 +41,14 @@
     "progress": false
   },
   "objectStorage": {
-    "endpoint": "http://localhost:9000/",
+    "endpoint": "http://s3.example",
     "bucketName": "bucketName",
     "acl": "public-read",
-    "accessKey": "accessKey",
-    "secretKey": "secretKey"
+    "credentials": {
+      "accessKey": "accessKey",
+      "secretKey": "secretKey"
+    },
+    "region": "us-east-1"
   },
   "arstotzka": {
     "enabled": false,

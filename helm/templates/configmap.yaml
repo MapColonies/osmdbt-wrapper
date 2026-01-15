@@ -1,6 +1,7 @@
 {{- $releaseName := .Release.Name -}}
 {{- $chartName := include "osmdbt-wrapper.name" . -}}
 {{- $tracingUrl := include "osmdbt-wrapper.tracingUrl" . -}}
+{{- $metricsUrl := include "osmdbt-wrapper.metricsUrl" . -}}
 {{- if .Values.enabled -}}
 apiVersion: v1
 kind: ConfigMap
@@ -22,11 +23,10 @@ data:
   {{- else }}
   TELEMETRY_TRACING_ENABLED: "false"
   {{- end }}
-  {{ if .Values.env.app.shouldLockObjectStorage }}
-  APP_SHOULD_LOCK_OBJECT_STORAGE: "true"
-  {{- else }}
-  APP_SHOULD_LOCK_OBJECT_STORAGE: "false"
-  {{- end }}
+  {{ if .Values.env.metrics.enabled }}
+  TELEMETRY_METRICS_ENABLED: 'true'
+  TELEMETRY_METRICS_URL: {{ $metricsUrl }}
+  {{ end }}
   {{ if .Values.env.app.shouldCollectInfo }}
   APP_SHOULD_COLLECT_INFO: "true"
   {{- else }}
@@ -42,5 +42,21 @@ data:
   OSMDBT_VERBOSE: "true"
   {{- else }}
   OSMDBT_VERBOSE: "false"
+  {{- end }}
+  {{- if .Values.env.osmium.verbose }}
+  OSMIUM_VERBOSE: "true"
+  {{- else }}
+  OSMIUM_VERBOSE: "false"
+  {{- end }}
+  {{- if .Values.env.osmium.progress }}
+  OSMIUM_PROGRESS: "true"
+  {{- else }}
+  OSMIUM_PROGRESS: "false"
+  {{- end }}
+  {{- if .Values.env.app.cron.enabled }}
+  APP_CRON_ENABLED: "true"
+  APP_CRON_EXPRESSION: {{ .Values.env.app.cron.expression | quote }}
+  APP_CRON_FAILURE_PENALTY: {{ .Values.env.app.cron.failurePenalty | quote }}
+  {{- else }}
   {{- end }}
 {{- end -}}
