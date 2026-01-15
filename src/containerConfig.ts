@@ -7,13 +7,14 @@ import { Registry } from 'prom-client';
 import { DependencyContainer } from 'tsyringe/dist/typings/types';
 import jsLogger, { type Logger } from '@map-colonies/js-logger';
 import { InjectionObject, registerDependencies } from '@common/dependencyRegistration';
-import { ON_SIGNAL, SERVICES, SERVICE_NAME } from '@common/constants';
+import { ARSTOTZKA_DISABLED_ERROR_MSG, ON_SIGNAL, SERVICES, SERVICE_NAME, TERMINUS_FACTORY } from '@common/constants';
 import { getTracing } from '@common/tracing';
 import { ConfigType, getConfig } from './common/config';
 import { s3ClientFactory, s3RepositoryFactory } from './s3';
 import { S3_REPOSITORY } from './s3/s3Repository';
 import { isSingleTask, OSMDBT_PROCESSOR, osmdbtProcessorFactory, OsmdbtProcessor } from './osmdbt';
 import { ArstotzkaConfig } from './common/interfaces';
+import { terminusFactory } from './common/terminus';
 
 export interface RegisterOptions {
   override?: InjectionObject<unknown>[];
@@ -92,15 +93,15 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
             const arstotzkaConfig = config.get('arstotzka') as ArstotzkaConfig;
 
             if (!arstotzkaConfig.enabled) {
-              const msg = 'Mediator is not enabled, but it is required for the application to run';
-              logger.fatal({ msg });
-              throw new Error(msg);
+              logger.fatal({ msg: ARSTOTZKA_DISABLED_ERROR_MSG, arstotzkaConfig });
+              throw new Error(ARSTOTZKA_DISABLED_ERROR_MSG);
             }
 
             return new StatefulMediator({ ...arstotzkaConfig.mediator, serviceId: arstotzkaConfig.serviceId, logger });
           }),
         },
       },
+      { token: TERMINUS_FACTORY, provider: { useFactory: terminusFactory } },
       {
         token: ON_SIGNAL,
         provider: {

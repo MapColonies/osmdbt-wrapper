@@ -21,13 +21,13 @@ export abstract class CommonExecutable {
     @inject(SERVICES.METRICS) registry?: PromRegistry
   ) {
     if (registry !== undefined) {
-      const { osmdbtJobDurationSeconds } = (config.get('telemetry.metrics') as MetricsConfig).buckets;
+      const { osmdbtCommandDurationSeconds } = (config.get('telemetry.metrics') as MetricsConfig).buckets;
 
       this.commandDurationHistogram = new Histogram({
-        name: `${this.executableName}_command_duration_seconds`,
+        name: `osmdbt_${this.executableName}_command_duration_seconds`,
         help: 'Duration of individual executable commands in seconds',
         labelNames: ['command', 'exitCode'] as const,
-        buckets: osmdbtJobDurationSeconds,
+        buckets: osmdbtCommandDurationSeconds,
         registers: [registry],
       });
     }

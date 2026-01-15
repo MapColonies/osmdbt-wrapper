@@ -1,5 +1,4 @@
 import { trace as traceAPI, Attributes, Context, Span, SpanStatusCode } from '@opentelemetry/api';
-import { Counter as PromCounter } from 'prom-client';
 import { ErrorWithExitCode } from '../errors';
 
 export const TRACER_NAME = 'osmdbt-wrapper';
@@ -27,12 +26,9 @@ export const handleSpanOnSuccess = (span?: Span): void => {
   span.end();
 };
 
-export const handleSpanOnError = (span?: Span, error?: unknown, promCounter: PromCounter | undefined = undefined): void => {
+export const handleSpanOnError = (span?: Span, error?: unknown): void => {
   if (span === undefined) {
     return;
-  }
-  if (promCounter) {
-    promCounter.inc({ rootSpan: span.spanContext().spanId });
   }
 
   span.setStatus({ code: SpanStatusCode.ERROR });

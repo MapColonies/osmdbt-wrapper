@@ -44,7 +44,7 @@ export class OsmdbtService {
     this.osmdbtConfig = this.config.get('osmdbt') as OsmdbtConfig;
 
     if (registry !== undefined) {
-      const { osmdbtCommandDurationSeconds } = (this.config.get('telemetry.metrics') as MetricsConfig).buckets;
+      const { osmdbtJobDurationSeconds } = (this.config.get('telemetry.metrics') as MetricsConfig).buckets;
       this.jobCounter = new PromCounter({
         name: 'osmdbt_job_count',
         help: 'The total number of osmdbt jobs started',
@@ -55,7 +55,7 @@ export class OsmdbtService {
         name: 'osmdbt_job_duration_seconds',
         help: 'Duration of osmdbt job execution in seconds',
         labelNames: ['exitCode'] as const,
-        buckets: osmdbtCommandDurationSeconds,
+        buckets: osmdbtJobDurationSeconds,
         registers: [registry],
       });
     }

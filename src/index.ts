@@ -10,7 +10,7 @@ import { TERMINUS_FACTORY, ON_SIGNAL, SERVICES } from '@common/constants';
 import { type ConfigType } from '@common/config';
 import { getApp } from './app';
 import { isSingleTask, OSMDBT_PROCESSOR, OsmdbtProcessor } from './osmdbt';
-import { TerminusFactory } from './common/liveness';
+import { TerminusFactory } from './common/terminus';
 
 let depContainer: DependencyContainer | undefined;
 
@@ -32,7 +32,7 @@ void getApp()
     const osmdbtProcess = container.resolve<OsmdbtProcessor>(OSMDBT_PROCESSOR);
     const terminusFactory = container.resolve<TerminusFactory>(TERMINUS_FACTORY);
 
-    app.use('/metrics', metricsMiddleware(registry));
+    app.use('/metrics', metricsMiddleware(registry, false));
 
     const server = terminusFactory(createServer(app));
 

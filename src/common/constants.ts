@@ -38,6 +38,7 @@ export const DIFF_FILE_EXTENTION = 'osc.gz';
 export const BACKUP_DIR_NAME = 'backup';
 export const S3_NOT_FOUND_ERROR_NAME = 'NotFound';
 export const SEQUENCE_NUMBER_COMPONENT_LENGTH = 3;
+export const ARSTOTZKA_DISABLED_ERROR_MSG = 'arstotzka is not enabled, while required for the application to run';
 
 /* eslint-disable @typescript-eslint/naming-convention */
 export const ExitCodes = {
