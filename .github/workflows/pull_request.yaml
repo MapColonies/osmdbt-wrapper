@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Check out TS Project Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Init nodejs
         uses: ./.github/actions/init-npm
@@ -36,7 +36,7 @@ jobs:
 
     steps:
       - name: Check out TS Project Git repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
         uses: actions/setup-node@v1
@@ -71,7 +71,7 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
 
       - name: build Docker image
         run: docker build -t test-build:latest .
