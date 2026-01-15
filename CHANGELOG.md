@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [3.0.0](https://github.com/MapColonies/osmdbt-wrapper/compare/v2.2.0...v3.0.0) (2026-01-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* upgrade to ts server boilerplate (MAPCO-8154) and added applicative cronjob support (MAPCO-8153) ([#16](https://github.com/MapColonies/osmdbt-wrapper/issues/16))
+
+### Features
+
+* upgrade to ts server boilerplate (MAPCO-8154) and added applicative cronjob support (MAPCO-8153) ([#16](https://github.com/MapColonies/osmdbt-wrapper/issues/16)) ([a565519](https://github.com/MapColonies/osmdbt-wrapper/commit/a5655197ff3b421c8477dd5fd467c70155f1458a))
+
 ## [2.2.0](https://github.com/MapColonies/osmdbt-wrapper/compare/v2.1.1...v2.2.0) (2024-01-23)
 
 
