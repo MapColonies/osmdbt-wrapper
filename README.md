@@ -38,6 +38,9 @@ flowchart TD
 
 ## Configuration
 
+> [!IMPORTANT]  
+> Make sure `osmdbt-config.yaml` config is the same config in `/config` file!
+
 **Values**
 
 - `cronjob.schedule` - the cronjob schedule interval in the format of [the cron schedule syntax](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#cron-schedule-syntax)
